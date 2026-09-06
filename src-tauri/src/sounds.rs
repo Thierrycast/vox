@@ -112,9 +112,12 @@ impl SoundBank {
                 // Fica escutando até o canal fechar, o que só acontece quando o
                 // app encerra.
                 while let Ok(bytes) = rx.recv() {
-                    let Ok(sink) = Sink::try_new(&handle) else {
-                        tracing::debug!("não foi possível criar o sink");
-                        continue;
+                    let sink = match Sink::try_new(&handle) {
+                        Ok(sink) => sink,
+                        Err(err) => {
+                            tracing::warn!(?err, "não foi possível criar o sink de áudio");
+                            continue;
+                        }
                     };
                     match Decoder::new(Cursor::new(bytes)) {
                         // `detach` deixa o som terminar sozinho; o stink morre
@@ -123,7 +126,7 @@ impl SoundBank {
                             sink.append(decoded);
                             sink.detach();
                         }
-                        Err(err) => tracing::debug!(?err, "falha ao decodificar som"),
+                        Err(err) => tracing::warn!(?err, "falha ao decodificar som"),
                     }
                 }
 
@@ -176,6 +179,7 @@ impl SoundBank {
     /// perto de perder a transcrição.
     pub fn play(&self, cue: Cue) {
         if !*self.enabled.lock() {
+            tracing::debug!(?cue, "som suprimido: retorno sonoro desligado nas preferências");
             return;
         }
 
@@ -189,12 +193,13 @@ impl SoundBank {
             .or_else(|| cue.fallback()?.embedded().map(<[u8]>::to_vec));
 
         let Some(bytes) = bytes else {
-            tracing::debug!(?cue, "sem som disponível");
+            tracing::warn!(?cue, "sem som disponível para este evento");
             return;
         };
 
+        tracing::debug!(?cue, bytes = bytes.len(), "enfileirando som");
         if self.player.send(bytes).is_err() {
-            tracing::debug!("a thread de som não está mais escutando");
+            tracing::warn!(?cue, "a thread de som morreu; nenhum som será tocado");
         }
     }
 }

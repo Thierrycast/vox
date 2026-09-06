@@ -94,9 +94,10 @@ body {
     inset 0 0 0 1px  rgba(255, 255, 255, .10);
 }
 
-/* Mais largo que os 120px da referência: lá o HUD é só onda, aqui ele divide o
-   espaço com os dois botões e o tempo, e a onda ficava espremida. */
-.hud[data-dictation] { width: 216px; }
+/* Um pouco mais largo que os 120px da referência, e não muito mais: os botões
+   são absolutos e não disputam espaço com a onda, então a largura só precisa
+   dar folga ao traçado. Em 216px o card lia como vazio. */
+.hud[data-dictation] { width: 168px; }
 .hud[data-reading]   { width: 168px; }
 
 .hud[data-success] {
@@ -188,7 +189,7 @@ body {
   align-items: center;
   gap: 2px;
 }
-.hud[data-dictation] .wf { width: 150px; }
+.hud[data-dictation] .wf { width: 112px; }
 .hud[data-reading]   .wf { width: 120px; cursor: pointer; -webkit-app-region: no-drag; }
 
 .wf-bar {
