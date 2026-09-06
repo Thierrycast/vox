@@ -192,7 +192,19 @@ impl Settings {
                 tracing::warn!(?path, ?err, "preferências ilegíveis; usando os padrões");
                 Settings::default()
             }),
-            Err(_) => Settings::default(),
+            Err(_) => {
+                // Grava os padrões na primeira execução. Enquanto não há janela
+                // de preferências, o arquivo é a única forma de descobrir e
+                // mexer no que dá para configurar — e um arquivo que não existe
+                // não se deixa descobrir.
+                let padroes = Settings::default();
+                if let Err(err) = padroes.save() {
+                    tracing::warn!(?path, ?err, "não deu para gravar as preferências padrão");
+                } else {
+                    tracing::info!(?path, "preferências padrão gravadas");
+                }
+                padroes
+            }
         };
         settings.sanitize();
         settings
