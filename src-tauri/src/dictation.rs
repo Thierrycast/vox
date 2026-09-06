@@ -30,8 +30,22 @@ use crate::sounds::{Cue, SoundBank};
 pub const LEVEL_POLL_MS: u64 = 50;
 
 /// Quantas barras o HUD desenha em cada modo.
-pub const BARS_NORMAL: usize = 12;
-pub const BARS_PUSH_TO_TALK: usize = 22;
+/// Quantas barras a onda desenha.
+///
+/// A referência usava 12 (e 22 em push-to-talk) numa faixa de 86px, e as barras
+/// ocupavam só 46px dela — o resto era ar. Copiado para o nosso HUD, de 168px,
+/// a onda virava um tufo no terço do meio.
+///
+/// O número aqui é derivado da geometria, não escolhido: 37 barras de 2px com
+/// 2px de intervalo dão 146px, que é a largura útil do HUD. Mudou a largura,
+/// muda este número — os dois andam juntos e estão anotados um no outro.
+pub const BARS_NORMAL: usize = 37;
+
+/// Igual ao normal. A referência dobrava a contagem em push-to-talk porque lá o
+/// HUD escondia os botões e sobrava espaço; aqui os botões são absolutos e não
+/// disputam espaço com a onda em modo nenhum, então a largura — e portanto a
+/// contagem — é a mesma nos dois.
+pub const BARS_PUSH_TO_TALK: usize = BARS_NORMAL;
 
 /// Quanto tempo o HUD fica visível depois de uma mensagem de sucesso.
 pub const SUCCESS_HOLD_MS: u64 = 2000;
@@ -452,7 +466,19 @@ pub fn shape_hud(app: &AppHandle, shape: HudShape) {
     let (width, height) = shape.size();
     let _ = window.set_size(tauri::LogicalSize::new(width, height));
 
-    let Ok(Some(monitor)) = window.current_monitor() else { return };
+    // Janela escondida nem sempre tem monitor associado no Windows. Quando isso
+    // acontece o HUD fica onde estava — o que já pareceu "o HUD não abriu",
+    // sendo que ele abriu fora da vista.
+    let monitor = match window.current_monitor() {
+        Ok(Some(monitor)) => monitor,
+        outro => {
+            tracing::warn!(
+                ?outro,
+                "sem monitor para posicionar o HUD; ele fica na posição anterior"
+            );
+            return;
+        }
+    };
     let scale = monitor.scale_factor();
     let screen = monitor.size().to_logical::<f64>(scale);
 
@@ -460,6 +486,11 @@ pub fn shape_hud(app: &AppHandle, shape: HudShape) {
         HudShape::Bar => ((screen.width - width) / 2.0, screen.height - height - 96.0),
         HudShape::Column => (screen.width - width - 12.0, (screen.height - height) / 2.0),
     };
+    tracing::debug!(
+        ?shape, largura = width, altura = height,
+        tela_l = screen.width, tela_a = screen.height, escala = scale,
+        x, y, "posicionando o HUD"
+    );
     let _ = window.set_position(tauri::LogicalPosition::new(x, y));
 }
 
@@ -473,7 +504,16 @@ pub fn show_hud(app: &AppHandle, push_to_talk: bool) {
         "state": "recording",
         "pushToTalk": push_to_talk,
     }));
-    let _ = window.show();
+    if let Err(err) = window.show() {
+        tracing::error!(?err, "não deu para mostrar o HUD");
+        return;
+    }
+    tracing::debug!(
+        visivel = ?window.is_visible(),
+        posicao = ?window.outer_position(),
+        tamanho = ?window.outer_size(),
+        "HUD mostrado"
+    );
 }
 
 pub fn hide_hud(app: &AppHandle) {

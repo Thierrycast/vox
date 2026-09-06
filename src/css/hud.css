@@ -10,7 +10,7 @@
  */
 
 @property --blend     { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --spotlight { syntax: "<number>"; inherits: true; initial-value: 8; }
+@property --spotlight { syntax: "<number>"; inherits: true; initial-value: -6; }
 
 :root {
   --space-2: 2px;
@@ -189,7 +189,9 @@ body {
   align-items: center;
   gap: 2px;
 }
-.hud[data-dictation] .wf { width: 112px; }
+/* 37 barras de 2px com 2px de intervalo = 146px. Tem que bater com
+   BARS_NORMAL em dictation.rs: é a mesma geometria escrita duas vezes. */
+.hud[data-dictation] .wf { width: 146px; }
 .hud[data-reading]   .wf { width: 120px; cursor: pointer; -webkit-app-region: no-drag; }
 
 .wf-bar {
@@ -235,7 +237,7 @@ body {
 /* --- processando: a onda derrete e o foco varre --- */
 .hud-stopping {
   --bar-w: 2px;
-  --spotlight: 8;
+  --spotlight: -6;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -244,21 +246,36 @@ body {
   height: 28px;
   animation:
     settle .3s ease-out forwards,
-    stopping-scan 1.7s linear .3s infinite;
+    stopping-scan 1.4s linear .3s infinite;
 }
 @keyframes settle { from { --blend: 1; } to { --blend: 0; } }
+
+/* Varredura da esquerda para a direita, e só nesse sentido.
+ *
+ * A referência fazia o foco vaguear (8 → 16 → 0 → 8): ele entrava, saía pela
+ * direita, voltava por dentro e ia para a esquerda. Isso lê como oscilação, não
+ * como progresso — e progresso é justamente o que este estado precisa dizer,
+ * porque é aqui que o usuário espera a transcrição.
+ *
+ * Começa fora da borda esquerda e termina fora da direita, para a onda nunca
+ * aparecer com o foco já no meio. */
 @keyframes stopping-scan {
-  0%   { --spotlight: 8;  }
-  25%  { --spotlight: 16; }
-  75%  { --spotlight: 0;  }
-  100% { --spotlight: 8;  }
+  from { --spotlight: -6; }
+  to   { --spotlight: 43; }
 }
 .hud-stopping .wf-bar {
-  --center:   calc(var(--spotlight) + 2.5);
-  --diff:     calc(var(--i) - var(--center));
+  /* `--spotlight` é a posição do foco em índice de barra; cada barra calcula a
+     própria altura pela distância até ele. Sem `@property` declarando o tipo,
+     o Chromium trataria as duas variáveis como texto e não interpolaria nada —
+     a animação existiria e não se moveria. */
+  --diff:     calc(var(--i) - var(--spotlight));
   --abs-diff: max(var(--diff), calc(-1 * var(--diff)));
-  --t:        clamp(0, calc(1 - var(--abs-diff) / 4), 1);
-  --stop-h:   calc(2 + var(--t) * 8);
+  /* Largura do foco: 6 barras para cada lado. Com 37 barras isso é um terço da
+     onda acesa por vez — estreito demais some no meio da largura nova. */
+  --t:        clamp(0, calc(1 - var(--abs-diff) / 6), 1);
+  /* Até 18px numa faixa de 28: a referência ia só a 10px, que na largura maior
+     mal se distinguia da linha de base. */
+  --stop-h:   calc(2 + var(--t) * 16);
   height:  calc((var(--initial-h, 2) * var(--blend) + var(--stop-h) * (1 - var(--blend))) * 1px);
   opacity: calc(var(--initial-opacity, 1) * var(--blend) + (.35 + var(--t) * .65) * (1 - var(--blend)));
   transition: none;

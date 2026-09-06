@@ -46,7 +46,7 @@ const { listen, emit } = window.__TAURI__.event;
 /* Os tempos vêm do backend: duplicá-los aqui seria dois lugares para mudar o
    mesmo número, e divergir sem ninguém perceber. Os valores abaixo são só o
    fallback para o instante entre carregar a página e a resposta chegar. */
-const timings = { pollMs: 50, successHoldMs: 2000, barsNormal: 12, barsPushToTalk: 22 };
+const timings = { pollMs: 50, successHoldMs: 2000, barsNormal: 37, barsPushToTalk: 37 };
 
 invoke("hud_timings")
   .then((values) => {
