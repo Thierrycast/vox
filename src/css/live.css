@@ -1,0 +1,107 @@
+/* Transcrição ao vivo — popup opcional do canto superior direito.
+ *
+ * Herda a paleta do HUD de propósito: são a mesma sessão vista de dois ângulos,
+ * e duas linguagens visuais competindo na tela ao mesmo tempo cansariam.
+ */
+:root {
+  --hud-bg: #17171a;
+  --hud-fg: #ffffff;
+  --green: #37d67a;
+  --radius-8: 8px;
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body {
+  /* Folga para a sombra não sair cortada: a janela é transparente. */
+  padding: 10px;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--hud-fg);
+}
+
+.card {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  width: 100%;
+  padding: var(--space-12);
+  border-radius: var(--radius-8);
+  /* Duas declarações: a de baixo é Chromium 119+, e onde ela não existe a
+     linha inteira é descartada em vez de o card ficar invisível. */
+  background-color: #17171a;
+  background-color: rgb(from var(--hud-bg) r g b / 94%);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .45);
+  /* O anel interno do HUD, para os dois se lerem como a mesma peça. */
+  box-shadow:
+    0 8px 26px rgba(0, 0, 0, .45),
+    inset 0 .5px 0 0 rgba(255, 255, 255, .10),
+    inset 0 0 0 1px rgba(255, 255, 255, .10);
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity .22s cubic-bezier(.16, 1, .3, 1),
+              transform .22s cubic-bezier(.16, 1, .3, 1);
+}
+
+.card[data-visible] { opacity: 1; transform: none; }
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--green);
+  flex-shrink: 0;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: .35; }
+  50%      { opacity: 1; }
+}
+
+.label {
+  font-size: 10.5px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, .55);
+}
+
+.text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, .92);
+  /* Quatro linhas no máximo: é um espelho do que está sendo entendido, não um
+     editor. Passando disso, a janela viraria um bloco de texto no caminho. */
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.text:empty::before {
+  content: "…";
+  color: rgba(255, 255, 255, .35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card { transition: none; }
+  .dot { animation: none; opacity: 1; }
+}

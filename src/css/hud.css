@@ -1,0 +1,492 @@
+/* HUD do Vox.
+ *
+ * A geometria e os tempos vieram de medir o bundle do Raycast: 120×36 com
+ * padding 4, barra de 2px com `transition: height 20ms linear` (menor que o
+ * intervalo de 50ms do poll, para cada valor assentar antes do próximo), e a
+ * varredura de `--spotlight` em 1,7s.
+ *
+ * `--blend` e `--spotlight` precisam de @property: sem o tipo declarado, o
+ * navegador trata as variáveis como texto e não interpola nada.
+ */
+
+@property --blend     { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --spotlight { syntax: "<number>"; inherits: true; initial-value: 8; }
+
+:root {
+  --space-2: 2px;
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --radius-4: 4px;
+  --radius-8: 8px;
+  --radius-20: 20px;
+  --easing-ease-out-expo: cubic-bezier(.16, 1, .3, 1);
+
+  /* Todo o resto deriva destes dois. */
+  --hud-bg: #17171a;
+  --hud-fg: #ffffff;
+
+  --green: #37d67a;
+  --yellow: #f5c451;
+  --red: #f4585c;
+}
+
+* { box-sizing: border-box; }
+
+/* `.hud` e `.player` declaram `display`, e estilo de autor vence a folha do
+   navegador — sem esta regra o atributo `hidden` do HTML não esconde nada, e a
+   pílula vazia da leitura aparecia ao lado do HUD do ditado. */
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;   /* a janela é transparente; nada pode pintar atrás */
+  overflow: hidden;
+  /* A janela inteira arrasta: não há barra de título para segurar. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Folga para a sombra não sair cortada — a janela é transparente. */
+  padding: 10px;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 13px;
+  color: var(--hud-fg);
+}
+
+.hud {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-12);
+  height: 36px;
+  padding: 4px;
+  border-radius: var(--radius-8);
+  overflow: hidden;
+  /* Opaco de propósito. Numa janela transparente o WebView2 não tem o desktop
+     para amostrar, e o `backdrop-filter` vira uma lavagem cinza opaca em vez de
+     desfoque — foi exatamente o que apareceu no primeiro teste. A cor tem que
+     bastar sozinha; o desfoque, se um dia funcionar, é ganho extra. */
+  /* Duas declarações de propósito — reserva para WebView2 antigo. A sintaxe
+     `rgb(from ...)` é do Chromium 119+; onde ela não existe a linha inteira é
+     descartada e a de cima permanece, em vez de o HUD ficar invisível. */
+  background-color: #17171a;
+  background-color: rgb(from var(--hud-bg) r g b / 94%);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .45);
+  /* Arrastar move a janela; os controles cancelam isso individualmente. */
+  -webkit-app-region: drag;
+}
+
+.hud::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 .5px 0 0 rgba(255, 255, 255, .10),
+    inset 0 0 0 1px  rgba(255, 255, 255, .10);
+}
+
+/* Mais largo que os 120px da referência: lá o HUD é só onda, aqui ele divide o
+   espaço com os dois botões e o tempo, e a onda ficava espremida. */
+.hud[data-dictation] { width: 216px; }
+.hud[data-reading]   { width: 168px; }
+
+.hud[data-success] {
+  width: auto;
+  padding-inline: 16px;
+  white-space: nowrap;
+}
+
+.hud[data-error] {
+  width: auto;
+  height: auto;
+  min-height: 36px;
+  padding: 8px 12px;
+  /* O mesmo raio do HUD de gravação, e não o `--radius-closest` da referência:
+     os dois aparecem na mesma sessão, um logo depois do outro, e raios
+     diferentes fazem parecer dois aplicativos. */
+  border-radius: var(--radius-8);
+  white-space: nowrap;
+}
+
+/* --- brilho de estado: dois gradientes vindos de cima --- */
+.hud-variant {
+  position: absolute;
+  inset: 0;
+  --gradient-base-color: transparent;
+  transition: --gradient-base-color 1.2s var(--easing-ease-out-expo);
+  background-image:
+    radial-gradient(45% 30% at 50% -10%,  var(--gradient-base-color), rgb(from var(--gradient-base-color) r g b / 0%)),
+    radial-gradient(100% 90% at 50% -15%, var(--gradient-base-color), rgb(from var(--gradient-base-color) r g b / 0%));
+}
+.hud-variant[data-variant="success"] { --gradient-base-color: rgb(from var(--green)  r g b / 26%); }
+.hud-variant[data-variant="warning"] { --gradient-base-color: rgb(from var(--yellow) r g b / 26%); }
+.hud-variant[data-variant="failure"] { --gradient-base-color: rgb(from var(--red)    r g b / 26%); }
+
+.hud-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+}
+
+/* --- botões laterais, revelados no hover --- */
+.hud-btn {
+  position: absolute;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-4);
+  background: transparent;
+  color: var(--hud-fg);
+  opacity: 0;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.hud-btn svg { width: 20px; height: 20px; display: block; }
+.hud-content > .hud-btn:first-child { left: 0; }
+.hud-content > .hud-btn:last-child  { right: 0; }
+.hud-btn:focus-visible { outline: 2px solid var(--hud-fg); outline-offset: -2px; opacity: 1; }
+
+.hud-lane {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 28px;
+}
+
+.hud-waveform {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 28px;
+  opacity: 1;
+  transition: opacity .16s;
+}
+
+.wf {
+  --bar-w: 2px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 2px;
+}
+.hud[data-dictation] .wf { width: 150px; }
+.hud[data-reading]   .wf { width: 120px; cursor: pointer; -webkit-app-region: no-drag; }
+
+.wf-bar {
+  width: var(--bar-w);
+  min-height: 2px;
+  border-radius: 999px;
+  background-color: var(--hud-fg);
+  /* Cobre o intervalo inteiro do poll com uma curva de saída, em vez dos 20ms
+     lineares da referência. Lá o valor assentava e a barra ficava parada os
+     30ms restantes — o que se vê é um degrau. Aqui o movimento nunca para, e a
+     onda ondula em vez de piscar. */
+  transition: height 130ms cubic-bezier(.22, 1, .36, 1);
+}
+
+.hud-timer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  opacity: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity .16s;
+}
+
+.hud:not([data-stopping]):is(:hover, :focus-within) .hud-waveform { opacity: .1; }
+.hud:not([data-stopping]):is(:hover, :focus-within) .hud-timer    { opacity: 1; }
+.hud:not([data-stopping]):is(:hover, :focus-within) .hud-btn {
+  opacity: 1;
+  background-color: rgba(255, 255, 255, .10);
+}
+.hud[data-stopping] .hud-btn { opacity: 0; pointer-events: none; }
+
+/* Na leitura o scrub é o controle principal e sobrevive ao hover — mas então o
+   timer não pode entrar por cima dele. Os dois disputavam o mesmo espaço e o
+   resultado era ilegível; tempo e transporte vivem na janela de leitura, que
+   tem espaço para eles. */
+.hud[data-reading][data-playing]:is(:hover, :focus-within) .hud-waveform { opacity: .55; }
+.hud[data-reading] .hud-timer { display: none; }
+
+/* --- processando: a onda derrete e o foco varre --- */
+.hud-stopping {
+  --bar-w: 2px;
+  --spotlight: 8;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  height: 28px;
+  animation:
+    settle .3s ease-out forwards,
+    stopping-scan 1.7s linear .3s infinite;
+}
+@keyframes settle { from { --blend: 1; } to { --blend: 0; } }
+@keyframes stopping-scan {
+  0%   { --spotlight: 8;  }
+  25%  { --spotlight: 16; }
+  75%  { --spotlight: 0;  }
+  100% { --spotlight: 8;  }
+}
+.hud-stopping .wf-bar {
+  --center:   calc(var(--spotlight) + 2.5);
+  --diff:     calc(var(--i) - var(--center));
+  --abs-diff: max(var(--diff), calc(-1 * var(--diff)));
+  --t:        clamp(0, calc(1 - var(--abs-diff) / 4), 1);
+  --stop-h:   calc(2 + var(--t) * 8);
+  height:  calc((var(--initial-h, 2) * var(--blend) + var(--stop-h) * (1 - var(--blend))) * 1px);
+  opacity: calc(var(--initial-opacity, 1) * var(--blend) + (.35 + var(--t) * .65) * (1 - var(--blend)));
+  transition: none;
+}
+
+/* --- brilhos de IA --- */
+.hud-sparkles {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+.sparkle {
+  position: absolute;
+  top: var(--sparkle-y);
+  left: var(--sparkle-x);
+  width: var(--sparkle-size);
+  height: var(--sparkle-size);
+  background: currentColor;
+  color: var(--hud-fg);
+  clip-path: polygon(50% 0%, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0% 50%, 39% 39%);
+  filter: drop-shadow(0 0 1px);
+  animation: sparkle-twinkle var(--sparkle-duration) ease-in-out var(--sparkle-delay) infinite;
+}
+@keyframes sparkle-twinkle {
+  0%, 100% { opacity: calc(var(--sparkle-opacity) * .35); transform: translate(-50%, -50%) scale(.65) rotate(-8deg); }
+  50%      { opacity: var(--sparkle-opacity);             transform: translate(-50%, -50%) scale(1)   rotate(8deg);  }
+}
+
+/* --- sucesso e erro --- */
+.hud-success {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  height: 100%;
+}
+.hud-success svg { width: 20px; height: 20px; flex-shrink: 0; }
+
+.hud-err {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  height: 100%;
+}
+.hud-err-details { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.hud-err-title { font-size: 13px; line-height: 1.25; }
+.hud-err-msg   { font-size: 11.5px; line-height: 1.25; color: rgba(255, 255, 255, .60); }
+.dot { width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sparkle { animation: none; opacity: var(--sparkle-opacity); transform: translate(-50%, -50%); }
+  .hud-stopping { animation: settle .3s ease-out forwards; }
+  .wf-bar { transition: none; }
+}
+
+/* ============================================================================
+   PLAYER DA LEITURA — pílula vertical, encostada na borda
+   ============================================================================
+
+   O HUD horizontal serve ao ditado, onde a onda mostra nível de microfone real
+   e o tempo cabe em 120px. A leitura precisa de outra coisa: transporte de
+   verdade (voltar, pausar, avançar, velocidade) e ficar fora do caminho do
+   texto que se está lendo.
+
+   Uma coluna estreita na borda direita resolve os dois: não corta a linha de
+   leitura na horizontal e empilha os controles no espaço que sobra.
+
+   Mesmo vocabulário do HUD — mesmo fundo com desfoque, mesmo anel interno,
+   mesmos tokens. Só a orientação muda. */
+
+.player {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-8);
+  width: 52px;
+  padding: 10px 6px;
+  border-radius: 26px;
+  background-color: #17171a;
+  background-color: rgb(from var(--hud-bg) r g b / 94%);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .45);
+  color: var(--hud-fg);
+  -webkit-app-region: drag;
+}
+
+.player::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 .5px 0 0 rgba(255, 255, 255, .10),
+    inset 0 0 0 1px  rgba(255, 255, 255, .10);
+}
+
+.player-time {
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, .65);
+  letter-spacing: .02em;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.player-time:hover { color: var(--hud-fg); }
+
+/* Anel de progresso ao redor do play/pause: o tempo restante fica legível sem
+   ocupar linha própria, que é o luxo que uma coluna de 52px não tem. */
+.player-main {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+.player-ring {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+  pointer-events: none;
+}
+.player-ring circle {
+  fill: none;
+  stroke-width: 2;
+  cx: 19px;
+  cy: 19px;
+  r: 17px;
+}
+.player-ring .rail  { stroke: rgba(255, 255, 255, .16); }
+.player-ring .value {
+  stroke: var(--hud-fg);
+  stroke-linecap: round;
+  transition: stroke-dashoffset .2s linear;
+}
+
+.player-play {
+  position: absolute;
+  inset: 3px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .12);
+  color: var(--hud-fg);
+  cursor: pointer;
+  transition: background-color .14s;
+}
+.player-play:hover { background: rgba(255, 255, 255, .22); }
+.player-play:focus-visible { outline: 2px solid var(--hud-fg); outline-offset: 2px; }
+.player-play svg { width: 15px; height: 15px; display: block; }
+
+.player-jumps {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  -webkit-app-region: no-drag;
+}
+
+.player-btn {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-4);
+  background: transparent;
+  color: rgba(255, 255, 255, .70);
+  cursor: pointer;
+  transition: background-color .14s, color .14s;
+  -webkit-app-region: no-drag;
+}
+.player-btn:hover { background: rgba(255, 255, 255, .12); color: var(--hud-fg); }
+.player-btn:focus-visible { outline: 2px solid var(--hud-fg); outline-offset: 1px; }
+.player-btn svg { width: 14px; height: 14px; display: block; }
+
+.player-speed {
+  font: inherit;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: var(--radius-4);
+  background: transparent;
+  color: rgba(255, 255, 255, .70);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.player-speed:hover { background: rgba(255, 255, 255, .12); color: var(--hud-fg); }
+
+.player-divider {
+  width: 20px;
+  height: 1px;
+  background: rgba(255, 255, 255, .12);
+  flex-shrink: 0;
+}
+
+/* Estados: enquanto gera não há o que controlar, então o transporte recua e o
+   anel pulsa no lugar do progresso. */
+.player[data-state="generating"] .player-jumps,
+.player[data-state="generating"] .player-speed { opacity: .3; pointer-events: none; }
+.player[data-state="generating"] .player-ring .value { animation: ring-pulse 1.4s ease-in-out infinite; }
+@keyframes ring-pulse { 0%, 100% { opacity: .25; } 50% { opacity: .9; } }
+
+.player[data-state="failed"] .player-ring .value { stroke: var(--red); }
+
+/* A falha troca o conteúdo da coluna: sem anel, sem tempo, sem transporte. */
+.player-failed-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--red);
+  flex-shrink: 0;
+}
+
+.player-failed-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, .75);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-ring .value { animation: none; transition: none; }
+}

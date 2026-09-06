@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- A mesma onda do ícone do app: identidade única entre bandeja e janelas. -->
+  <rect width="128" height="128" rx="28" fill="#17171a"/>
+  <g fill="#fff">
+    <rect x="22" y="52" width="12" height="24" rx="6"/>
+    <rect x="44" y="36" width="12" height="56" rx="6"/>
+    <rect x="66" y="22" width="12" height="84" rx="6"/>
+    <rect x="88" y="44" width="12" height="40" rx="6"/>
+  </g>
+</svg>

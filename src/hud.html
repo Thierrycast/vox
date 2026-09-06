@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="favicon.svg">
+<title>Vox</title>
+<link rel="stylesheet" href="css/hud.css">
+</head>
+<body>
+  <!-- A janela é transparente e sem bordas. Ela assume duas formas: barra
+       horizontal no ditado, coluna vertical no player de leitura. Só um dos
+       dois aparece por vez. -->
+
+  <div class="hud" id="hud" data-dictation>
+    <div class="hud-variant" id="variant"></div>
+    <div class="hud-sparkles" id="sparkles" hidden></div>
+    <div class="hud-content" id="content"></div>
+  </div>
+
+  <div class="player" id="player" hidden></div>
+
+  <script type="module" src="js/hud.js"></script>
+</body>
+</html>

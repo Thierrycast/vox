@@ -1,0 +1,18 @@
+/target
+/src-tauri/target
+/node_modules
+
+# Segredos: só o .env.example entra no repo.
+.env
+
+# Logs de execução local. O `vox.log` é gerado por quem roda com redirecionamento
+# de saída e não descreve o projeto — descreve uma sessão.
+vox.log
+vox.log.out
+vox.err
+
+# Capturas de tela avulsas de diagnóstico.
+hud-captura.png
+
+# Gerado pelo tauri-build a cada compilacao.
+/src-tauri/gen/schemas

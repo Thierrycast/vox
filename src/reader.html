@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="favicon.svg">
+<title>Leitura</title>
+<link rel="stylesheet" href="css/reader.css">
+</head>
+<body data-state="idle">
+
+  <div class="topbar">
+    <span class="title">Leitura</span>
+    <span class="grow"></span>
+    <span class="status"><span class="dot"></span><span id="statusLabel">Parado</span></span>
+  </div>
+
+  <!-- Sem nada para ler: o leitor também é ponto de entrada, não só de exibição. -->
+  <div class="empty" id="empty">
+    <div class="empty-inner">
+      <h1>Nada sendo lido</h1>
+      <p>
+        Selecione um texto em qualquer app e aperte <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd>.
+        Ou cole aqui embaixo.
+      </p>
+      <textarea class="paste-area" id="pasteArea" placeholder="Cole o texto para ler…" aria-label="Texto para ler"></textarea>
+      <button class="primary-button" id="readPasted" type="button">Ler este texto</button>
+    </div>
+  </div>
+
+  <!-- Gerando: precisa existir antes de o primeiro áudio chegar, senão a
+       janela abre vazia e parece travada. -->
+  <div class="awaiting" id="awaiting" hidden>
+    <span class="spinner" aria-hidden="true"></span>
+    <span>Gerando a voz…</span>
+  </div>
+
+  <!-- Falha: o motivo vem do backend. Sem ele o usuário só sabe que "não
+       funcionou", que é a única coisa que ele já tinha percebido sozinho. -->
+  <div class="failure" id="failure" hidden>
+    <span class="dot"></span>
+    <div class="failure-text">
+      <strong>Não deu para ler</strong>
+      <span id="failureReason"></span>
+    </div>
+    <button class="primary-button" id="retry" type="button">Tentar de novo</button>
+  </div>
+
+  <div class="reader" id="reader" hidden></div>
+
+  <div class="transport" id="transport" hidden>
+    <button class="control" id="restart" type="button" title="Voltar ao início" aria-label="Voltar ao início">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4.5 10a5.5 5.5 0 1 0 1.7-4"/><path d="M4 3v3.5h3.5"/>
+      </svg>
+    </button>
+
+    <button class="control" id="back15" type="button" title="Voltar 15 segundos" aria-label="Voltar 15 segundos">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10 3.5a6.5 6.5 0 1 1-6.4 7.7"/><path d="M6.4 1.6 3.2 3.9l2.6 2.6"/>
+      </svg>
+      <span class="jump-label">15</span>
+    </button>
+
+    <button class="control primary" id="playPause" type="button" title="Pausar" aria-label="Pausar">
+      <svg viewBox="0 0 20 20" fill="currentColor" id="playPauseIcon">
+        <rect x="6" y="4.5" width="3" height="11" rx="1"/><rect x="11" y="4.5" width="3" height="11" rx="1"/>
+      </svg>
+    </button>
+
+    <button class="control" id="forward15" type="button" title="Avançar 15 segundos" aria-label="Avançar 15 segundos">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10 3.5a6.5 6.5 0 1 0 6.4 7.7"/><path d="M13.6 1.6l3.2 2.3-2.6 2.6"/>
+      </svg>
+      <span class="jump-label">15</span>
+    </button>
+
+    <button class="control" id="stop" type="button" title="Cancelar leitura" aria-label="Cancelar leitura">
+      <svg viewBox="0 0 20 20" fill="currentColor"><rect x="5.5" y="5.5" width="9" height="9" rx="1.6"/></svg>
+    </button>
+
+    <div class="timeline">
+      <span class="elapsed" id="elapsed">0:00</span>
+      <div class="track" id="track" role="slider" tabindex="0"
+           aria-label="Posição da leitura" aria-valuemin="0" aria-valuenow="0" aria-valuemax="0">
+        <div class="buffered" id="buffered"></div>
+        <div class="progress" id="progress"></div>
+        <div class="playhead" id="playhead"></div>
+      </div>
+      <span class="duration" id="duration">0:00</span>
+    </div>
+
+    <select class="speed" id="speed" aria-label="Velocidade">
+      <option value="0.75">0,75×</option>
+      <option value="1" selected>1×</option>
+      <option value="1.25">1,25×</option>
+      <option value="1.5">1,5×</option>
+      <option value="1.75">1,75×</option>
+      <option value="2">2×</option>
+    </select>
+  </div>
+
+  <audio id="player"></audio>
+  <script type="module" src="js/reader.js"></script>
+</body>
+</html>

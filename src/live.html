@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="favicon.svg">
+<title>Transcrição ao vivo</title>
+<link rel="stylesheet" href="css/live.css">
+</head>
+<body>
+  <!-- Janela à parte, e não uma faixa dentro do HUD: o texto cresce e reflui a
+       cada palavra, e fazia o HUD pular de tamanho no meio da fala. -->
+  <div class="card" id="card">
+    <div class="head">
+      <span class="dot"></span>
+      <span class="label">Ouvindo</span>
+    </div>
+    <p class="text" id="text"></p>
+  </div>
+  <script type="module" src="js/live.js"></script>
+</body>
+</html>

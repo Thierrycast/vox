@@ -1,0 +1,76 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Vox",
+  "version": "0.1.0",
+  "identifier": "com.thierry.vox",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "hud",
+        "url": "hud.html",
+        "title": "Vox",
+        "width": 260,
+        "height": 76,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "visible": false,
+        "center": false,
+        "x": 40,
+        "y": 40
+      },
+      {
+        "label": "reader",
+        "url": "reader.html",
+        "title": "Leitura",
+        "width": 720,
+        "height": 640,
+        "minWidth": 460,
+        "minHeight": 360,
+        "resizable": true,
+        "visible": false,
+        "decorations": true
+      },
+      {
+        "label": "live",
+        "url": "live.html",
+        "title": "Transcricao ao vivo",
+        "width": 360,
+        "height": 132,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "visible": false,
+        "center": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "msi",
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "../assets/sounds/*"
+    ]
+  }
+}
