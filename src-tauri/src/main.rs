@@ -121,9 +121,28 @@ fn cancel_dictation(app: AppHandle, state: State<'_, AppState>) {
 #[tauri::command]
 fn show_reader(app: AppHandle) {
     if let Some(window) = app.get_webview_window("reader") {
-        let _ = window.show();
-        let _ = window.set_focus();
+        raise(&window);
     }
+}
+
+/// Traz uma janela para a frente de verdade.
+///
+/// `show()` + `set_focus()` não bastam no Windows: um processo que não está em
+/// primeiro plano não consegue roubar o foco, e o sistema troca isso por um
+/// piscar na barra de tarefas. A janela abre — atrás de tudo. Foi por isso que a
+/// leitura pareceu não ter destaque de texto: ele estava lá, numa janela que
+/// ninguém viu.
+///
+/// O contorno é o de sempre: marcar como sempre-no-topo, mostrar, e desmarcar
+/// em seguida. O sistema honra o `set_always_on_top` sem exigir foreground, e a
+/// janela sobe. Desmarcar logo depois evita que ela fique por cima do trabalho
+/// da pessoa para sempre.
+fn raise(window: &tauri::WebviewWindow) {
+    let _ = window.set_always_on_top(true);
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+    let _ = window.set_always_on_top(false);
 }
 
 /// O front informa qual trecho entrou em reprodução.

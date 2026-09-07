@@ -402,8 +402,17 @@ listen("vox://reading", (event) => {
   if (state === "idle") {
     player.hidden = true;
     player.innerHTML = "";
+    hud.hidden = false;
     return;
   }
+
+  /* A barra do ditado sai de cena já, antes de qualquer decisão sobre o player.
+     O conteúdo dela sobrevive escondido de uma sessão para a outra, e quem lia
+     logo depois de ditar via o "Copiado" do ditado anterior piscar antes da voz
+     começar — o DOM velho aparecendo no instante entre mostrar a janela e o
+     estado novo chegar. */
+  hud.hidden = true;
+  stopTimers();
 
   /* A falha troca o conteúdo em vez de só pintar o anel de vermelho: os
      controles de transporte não têm o que operar, e deixá-los ali convida o
@@ -423,8 +432,14 @@ listen("vox://reading", (event) => {
     return;
   }
 
-  if (!player.innerHTML || player.dataset.state === "failed") renderPlayer(state);
-  else player.dataset.state = state;
+  // Redesenha sempre que o que está lá não for o transporte. Testar só por
+  // `innerHTML` vazio deixava passar o caso de uma leitura anterior ter
+  // terminado em `complete` (que não limpa) e a nova nunca montar o player.
+  if (!document.getElementById("playerPlay")) renderPlayer(state);
+  else {
+    player.hidden = false;
+    player.dataset.state = state;
+  }
 });
 
 /* Os controles não mexem no áudio daqui: mandam o pedido para a janela de

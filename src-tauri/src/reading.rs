@@ -205,6 +205,10 @@ impl Reader {
         // O player flutuante vira coluna e encosta na borda; a janela de texto
         // sobe junto. Um dá controle sem tirar o foco do que se está lendo, a
         // outra dá o texto acompanhado.
+        // O estado vai primeiro, e só depois a janela aparece. Na ordem
+        // inversa o HUD reaparecia com o último quadro do ditado ainda no DOM —
+        // o "Copiado" — até o evento chegar e o player substituir o conteúdo.
+        emit(&app, ReadingState::Generating, None);
         crate::dictation::shape_hud(&app, crate::dictation::HudShape::Column);
         if let Some(hud) = app.get_webview_window("hud") {
             let _ = hud.show();
@@ -214,8 +218,7 @@ impl Reader {
         // Ela sobe antes do primeiro áudio para o texto aparecer imediatamente,
         // em vez de o usuário encarar o nada enquanto a voz é gerada.
         if let Some(window) = app.get_webview_window("reader") {
-            let _ = window.show();
-            let _ = window.set_focus();
+            crate::raise(&window);
         }
 
         // O front desenha o texto inteiro antes de qualquer áudio existir, para
@@ -226,8 +229,10 @@ impl Reader {
             let _ = app.emit("vox://reading-plan", serde_json::json!({ "segments": plan }));
         }
 
-        self.sounds.play(Cue::SpeakStart);
-        emit(&app, ReadingState::Generating, None);
+        // Sem som de início aqui de propósito: o retorno de que a leitura
+        // começou é a própria voz, e um bipe antes dela só atrasa o que a
+        // pessoa pediu. Erro, pausa e conclusão continuam soando — esses são
+        // avisos de que algo mudou sem a voz dizer.
 
         let mut index = 0;
         let mut playback_started = false;
