@@ -56,6 +56,15 @@ pub struct Settings {
     /// Quem quiser conferir o que está sendo entendido liga isto e ganha um
     /// popup fora do caminho.
     pub show_live_transcription: bool,
+
+    /// Abre a janela de leitura guiada junto com a fala.
+    ///
+    /// Desligado por padrão. Ela mostra o texto de novo, numa segunda janela, e
+    /// em cima de um navegador ou editor isso é o mesmo conteúdo duplicado
+    /// tapando o original — a pessoa já está com o texto na tela. Quando o texto
+    /// veio de onde não dá para acompanhar (um terminal que rolou, um PDF), a
+    /// janela é útil: por isso ela continua a um clique, no relógio do player.
+    pub open_reader_on_read: bool,
     pub vocabulary: Vec<String>,
     pub custom_instructions: String,
 
@@ -102,6 +111,7 @@ impl Default for Settings {
             submit_key: SubmitKey::Enter,
             live_transcription: true,
             show_live_transcription: false,
+            open_reader_on_read: false,
             vocabulary: Vec::new(),
             custom_instructions: String::new(),
 

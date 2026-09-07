@@ -354,6 +354,8 @@ async fn toggle_reading_shortcut(app: AppHandle) {
         state.reader.state()
     };
 
+    tracing::info!(estado = ?current, "atalho de leitura");
+
     match current {
         ReadingState::Playing => {
             let state = app.state::<AppState>();
@@ -523,6 +525,24 @@ fn main() {
             }
 
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() != "reader" {
+                return;
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Esconde em vez de destruir: a webview destruida nunca avisa
+                // que a reprodução terminou, e o estado da leitura ficava preso
+                // em `Playing`. Com a janela viva, o front sempre reporta.
+                api.prevent_close();
+                let _ = window.hide();
+
+                // Fechar o leitor é dizer "terminei" — parar a fala junto é o
+                // que a pessoa espera, e deixar a voz seguindo sem janela
+                // nenhuma seria pior.
+                let app = window.app_handle();
+                app.state::<AppState>().reader.stop(app);
+            }
         })
         .build(tauri::generate_context!())
         .expect("erro ao montar o vox")

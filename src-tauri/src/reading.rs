@@ -26,6 +26,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::api::{self, SpeechApi};
 use crate::sounds::{Cue, SoundBank};
+use crate::AppState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -158,6 +159,7 @@ impl Reader {
     pub fn pause(&self, app: &AppHandle) {
         let mut queue = self.queue.lock();
         if queue.state() != ReadingState::Playing {
+            tracing::debug!(estado = ?queue.state(), "pausa ignorada: não está tocando");
             return;
         }
         queue.state = Some(ReadingState::Paused);
@@ -169,6 +171,7 @@ impl Reader {
     pub fn resume(&self, app: &AppHandle) {
         let mut queue = self.queue.lock();
         if queue.state() != ReadingState::Paused {
+            tracing::debug!(estado = ?queue.state(), "retomada ignorada: não está pausado");
             return;
         }
         queue.state = Some(ReadingState::Playing);
@@ -217,8 +220,15 @@ impl Reader {
         // A janela já existe escondida desde a partida; mostrar custa um quadro.
         // Ela sobe antes do primeiro áudio para o texto aparecer imediatamente,
         // em vez de o usuário encarar o nada enquanto a voz é gerada.
-        if let Some(window) = app.get_webview_window("reader") {
-            crate::raise(&window);
+        let abrir_leitor = {
+            let state = app.state::<AppState>();
+            let settings = state.settings.lock();
+            settings.open_reader_on_read
+        };
+        if abrir_leitor {
+            if let Some(window) = app.get_webview_window("reader") {
+                crate::raise(&window);
+            }
         }
 
         // O front desenha o texto inteiro antes de qualquer áudio existir, para
