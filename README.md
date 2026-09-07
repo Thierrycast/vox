@@ -175,6 +175,20 @@ a onda parecer atrasada em relação à voz; descer devagar é o que dá o decai
 natural. A transição da barra cobre o intervalo inteiro do poll (130 ms), então o
 movimento nunca para.
 
+## Formas de acionar
+
+| Caminho | Onde funciona |
+|---|---|
+| `Ctrl+Shift+D` / `Ctrl+Alt+L` | qualquer app |
+| Bandeja → *Ler a área de transferência* | qualquer app |
+| Extensão: botão direito → *Ler com o Vox*, ou `Alt+Shift+L` | navegadores Chromium |
+
+A extensão está em `extension/` e é a única que **destaca o texto na própria
+página**, sem abrir janela. Ela fala com o Vox por um servidor em
+`127.0.0.1:8765` — ver `extension/README.md` para instalação e para o modelo de
+ameaça, que não é decorativo: loopback é alcançável por qualquer página aberta,
+e por isso a checagem de origem e o token acontecem no servidor, antes de agir.
+
 ## Estrutura
 
 ```

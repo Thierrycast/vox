@@ -229,6 +229,19 @@ function updateTimeline() {
   publishProgress();
 }
 
+/* O `timeupdate` do elemento de áudio dispara umas quatro vezes por segundo,
+   mas o navegador não garante o ritmo. O limitador evita que uma rajada vire
+   uma rajada de chamadas ao backend — a extensão interpola entre as leituras e
+   não perde nada com isso. */
+let ultimoEnvioDeProgresso = 0;
+
+function reportarProgresso(index, ratio) {
+  const agora = performance.now();
+  if (agora - ultimoEnvioDeProgresso < 90) return;
+  ultimoEnvioDeProgresso = agora;
+  invoke("reading_progress", { index, ratio }).catch(() => {});
+}
+
 /* ---------------------------------------------------------------- destaque */
 
 function markCurrent(index) {
@@ -272,6 +285,12 @@ function updateWordHighlight() {
     1,
     Math.max(0, (player.currentTime + WORD_LEAD_SECONDS) / segment.duration),
   );
+
+  /* A mesma posição vai para o backend, que a publica para a extensão de
+     navegador desenhar o destaque na página original. Esta janela e a página
+     mostram o mesmo texto de lugares diferentes; a posição tem que ser uma só,
+     e ela nasce aqui, onde o áudio de fato toca. */
+  reportarProgresso(currentIndex, ratio);
 
   for (const word of segment.words) {
     const from = Number(word.dataset.from);

@@ -65,6 +65,18 @@ pub struct Settings {
     /// veio de onde não dá para acompanhar (um terminal que rolou, um PDF), a
     /// janela é útil: por isso ela continua a um clique, no relógio do player.
     pub open_reader_on_read: bool,
+
+    // --- ponte da extensão de navegador ---
+    /// Sobe o servidor local que a extensão usa. Desligue para fechar a porta.
+    pub bridge_enabled: bool,
+    /// Porta em `127.0.0.1`. A extensão precisa apontar para a mesma.
+    pub bridge_port: u16,
+    /// Segredo compartilhado com a extensão.
+    ///
+    /// Gerado na primeira execução. Existe porque `127.0.0.1` não é uma
+    /// fronteira de confiança: qualquer programa da máquina alcança a porta, e
+    /// o cabeçalho `Origin` sozinho só barra páginas web, não outras extensões.
+    pub bridge_token: String,
     pub vocabulary: Vec<String>,
     pub custom_instructions: String,
 
@@ -112,6 +124,10 @@ impl Default for Settings {
             live_transcription: true,
             show_live_transcription: false,
             open_reader_on_read: false,
+
+            bridge_enabled: true,
+            bridge_port: 8765,
+            bridge_token: gerar_token(),
             vocabulary: Vec::new(),
             custom_instructions: String::new(),
 
@@ -217,6 +233,17 @@ impl Settings {
             }
         };
         settings.sanitize();
+
+        // Regrava sempre. Um arquivo escrito por uma versão anterior não tem os
+        // campos novos, e um campo que não está no arquivo é um campo que o
+        // usuário não tem como descobrir nem editar — foi assim que o token da
+        // ponte ficou invisível justamente para quem precisava copiá-lo. Como o
+        // que se grava é o que acabou de ser lido, nada do que ele configurou se
+        // perde: só os ausentes entram, com o padrão.
+        if let Err(err) = settings.save() {
+            tracing::warn!(?err, "não deu para normalizar o arquivo de preferências");
+        }
+
         settings
     }
 
@@ -229,6 +256,37 @@ impl Settings {
         std::fs::write(&path, raw).with_context(|| format!("gravar {}", path.display()))?;
         Ok(())
     }
+}
+
+/// Token de 32 caracteres hexadecimais para a ponte local.
+///
+/// Escrito à mão em vez de trazer o `rand`: o segredo protege uma porta de
+/// loopback contra outros programas da própria máquina, não contra um
+/// adversário com poder de computação. O relógio em nanossegundos misturado
+/// com o identificador do processo e com um endereço de heap dá entropia de
+/// sobra para isso, e uma dependência a menos num binário que já tem muitas.
+fn gerar_token() -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let mut saida = String::with_capacity(32);
+    let semente = Box::new(0u8);
+    let endereco = Box::as_ref(&semente) as *const u8 as usize;
+
+    for rodada in 0..2u64 {
+        let mut hasher = DefaultHasher::new();
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|passado| passado.as_nanos())
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        std::process::id().hash(&mut hasher);
+        endereco.hash(&mut hasher);
+        rodada.hash(&mut hasher);
+        saida.push_str(&format!("{:016x}", hasher.finish()));
+    }
+    saida
 }
 
 pub fn settings_path() -> PathBuf {

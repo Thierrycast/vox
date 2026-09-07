@@ -73,11 +73,21 @@ pub struct VoiceCatalog {
 impl SpeechApi {
     pub fn new(base_url: impl Into<String>, credentials: Option<Credentials>) -> Result<Self> {
         let client = reqwest::Client::builder()
-            // Mantém a conexão viva entre ditados: o segundo em diante não paga
-            // handshake nenhum.
-            .pool_idle_timeout(Duration::from_secs(300))
+            // Abaixo do keep-alive do uvicorn, que é de 5 s por padrão.
+            //
+            // Com 300 s aqui, o cliente guardava por cinco minutos uma conexão
+            // que o servidor tinha fechado cinco segundos depois de usar — e
+            // entregava essa conexão morta para a requisição seguinte. O
+            // sintoma foi uma leitura que sintetizou o primeiro trecho e
+            // congelou no segundo, sem erro, até o timeout estourar. Descartar
+            // antes do servidor custa um handshake de LAN entre leituras, que
+            // é ruído perto disso.
+            .pool_idle_timeout(Duration::from_secs(4))
             .pool_max_idle_per_host(4)
-            .timeout(Duration::from_secs(300))
+            // Generoso porque o Kokoro é lento (mede-se em dezenas de segundos
+            // por trecho), mas não tanto quanto era: em 300 s uma falha de rede
+            // aparecia como cinco minutos de tela parada.
+            .timeout(Duration::from_secs(120))
             .connect_timeout(Duration::from_secs(8))
             .user_agent(concat!("vox/", env!("CARGO_PKG_VERSION")))
             .build()

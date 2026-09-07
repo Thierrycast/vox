@@ -3,6 +3,7 @@
 
 mod api;
 mod audio;
+mod bridge;
 mod config;
 mod dictation;
 mod paste;
@@ -29,6 +30,8 @@ pub struct AppState {
     reader: Reader,
     api: Arc<SpeechApi>,
     sounds: Arc<SoundBank>,
+    /// Onde a leitura está agora, para a extensão de navegador acompanhar.
+    bridge: Arc<bridge::BridgeState>,
 }
 
 // ---------------------------------------------------------------- comandos
@@ -145,6 +148,16 @@ fn raise(window: &tauri::WebviewWindow) {
     let _ = window.set_always_on_top(false);
 }
 
+/// O front informa onde a fala está dentro do trecho corrente.
+///
+/// Só a janela de leitura sabe isto: é ela que tem o elemento de áudio. O
+/// backend guarda para a extensão de navegador poder desenhar o destaque na
+/// página original — a mesma informação, dois lugares desenhando.
+#[tauri::command]
+fn reading_progress(state: State<'_, AppState>, index: usize, ratio: f32) {
+    state.bridge.set_progress(index, ratio);
+}
+
 /// O front informa qual trecho entrou em reprodução.
 #[tauri::command]
 fn reading_cursor(state: State<'_, AppState>, index: usize) {
@@ -154,11 +167,16 @@ fn reading_cursor(state: State<'_, AppState>, index: usize) {
 #[tauri::command]
 fn reading_finished(app: AppHandle, state: State<'_, AppState>) {
     state.reader.finished(&app);
+    // Zera a ponte junto: é por `segments` voltar a zero que a extensão sabe
+    // que acabou e pode apagar o destaque. Sem isto ela ficaria consultando a
+    // posição para sempre, e a última frase ficaria pintada na página.
+    state.bridge.clear();
 }
 
 #[tauri::command]
 fn stop_reading(app: AppHandle, state: State<'_, AppState>) {
     state.reader.stop(&app);
+    state.bridge.clear();
 }
 
 #[tauri::command]
@@ -434,6 +452,55 @@ async fn toggle_dictation(app: AppHandle) {
     }
 }
 
+// ------------------------------------------------------------------ ponte
+
+/// O que a extensão pode pedir ao app.
+///
+/// Deliberadamente curto: ler um texto e parar. Nada aqui lê a área de
+/// transferência, abre janela ou muda preferência — quanto menor a superfície,
+/// menos importa quem conseguiu falar com a porta.
+struct AcoesDaPonte {
+    app: AppHandle,
+}
+
+impl bridge::Acoes for AcoesDaPonte {
+    fn ler(&self, texto: String) -> Vec<String> {
+        let state = self.app.state::<AppState>();
+        let (voice, speed, prebuffer) = {
+            let settings = state.settings.lock();
+            (settings.voice.clone(), settings.speed, settings.prebuffer_ratio)
+        };
+
+        // Divide aqui e devolve a mesma lista que vai ser falada. A extensão
+        // precisa da divisão idêntica para casar trecho com pedaço do DOM;
+        // dividir dos dois lados daria listas diferentes na primeira
+        // abreviação ou reticência.
+        let segments = api::split_text(&texto);
+        state.bridge.set_segments(segments.clone());
+
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = app.state::<AppState>();
+            let handle = app.clone();
+            if let Err(err) = state
+                .reader
+                .speak(handle, texto, voice, speed, prebuffer)
+                .await
+            {
+                tracing::error!(?err, "leitura pedida pela extensão falhou");
+            }
+        });
+
+        segments
+    }
+
+    fn parar(&self) {
+        let state = self.app.state::<AppState>();
+        state.reader.stop(&self.app);
+        state.bridge.clear();
+    }
+}
+
 // ---------------------------------------------------------------- partida
 
 fn main() {
@@ -471,6 +538,7 @@ fn main() {
         reader: Reader::new(api.clone(), sound_bank.clone()),
         settings: Mutex::new(settings),
         sounds: sound_bank,
+        bridge: Arc::new(bridge::BridgeState::default()),
         api,
     };
 
@@ -488,6 +556,7 @@ fn main() {
             cancel_dictation,
             show_reader,
             reading_cursor,
+            reading_progress,
             reading_finished,
             stop_reading,
             toggle_reading,
@@ -501,6 +570,27 @@ fn main() {
             // Criar uma webview custa 100–200 ms; fazer isso no momento do atalho
             // apareceria como atraso justamente onde a resposta precisa ser
             // instantânea. Criada na partida, mostrar depois custa ~1 frame.
+            // Ponte da extensão de navegador. Falhar aqui não impede o app:
+            // atalho e bandeja continuam funcionando, e a porta ocupada por
+            // outro programa é o caso comum de erro.
+            {
+                let estado_do_app = app.state::<AppState>();
+                let (ligada, porta, token) = {
+                    let settings = estado_do_app.settings.lock();
+                    (settings.bridge_enabled, settings.bridge_port, settings.bridge_token.clone())
+                };
+                if ligada {
+                    let estado = estado_do_app.bridge.clone();
+                    let acoes = std::sync::Arc::new(AcoesDaPonte { app: handle.clone() });
+                    tauri::async_runtime::spawn(async move {
+                        let config = bridge::Config { porta, token };
+                        if let Err(err) = bridge::servir(config, estado, acoes).await {
+                            tracing::error!(?err, porta, "a ponte da extensão não subiu");
+                        }
+                    });
+                }
+            }
+
             if let Some(hud) = app.get_webview_window("hud") {
                 // Nasce escondido: o HUD so aparece quando ha o que mostrar.
                 // Mesmo escondida a webview navega e carrega o front, entao o
@@ -541,7 +631,9 @@ fn main() {
                 // que a pessoa espera, e deixar a voz seguindo sem janela
                 // nenhuma seria pior.
                 let app = window.app_handle();
-                app.state::<AppState>().reader.stop(app);
+                let estado = app.state::<AppState>();
+                estado.reader.stop(app);
+                estado.bridge.clear();
             }
         })
         .build(tauri::generate_context!())

@@ -259,6 +259,7 @@ impl Reader {
                 break;
             };
 
+            tracing::debug!(trecho = index, chars = chunk_text.chars().count(), "sintetizando");
             let started = std::time::Instant::now();
             match self.api.speak(&chunk_text, &voice, speed).await {
                 Ok((meta, audio)) => {
@@ -305,6 +306,7 @@ impl Reader {
                     }
 
                     self.push_audio_to_front(&app, index);
+                    tracing::debug!(trecho = index, "áudio entregue ao front");
                 }
                 Err(err) => {
                     tracing::error!(?err, trecho = index, "síntese falhou");
