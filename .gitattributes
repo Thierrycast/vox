@@ -1,0 +1,12 @@
+# O repo guarda LF; o checkout no Windows fica com CRLF.
+#
+# Sem isto o Git avisa a cada `add` que vai converter, e um clone em Linux
+# receberia CRLF no meio do codigo. `text=auto` deixa a normalizacao com o Git,
+# que e onde ela pertence.
+* text=auto
+
+# Binarios nao passam por conversao nenhuma.
+*.png  binary
+*.ico  binary
+*.wav  binary
+*.mp3  binary
