@@ -16,10 +16,11 @@
  *
  * - **Frase: exata.** Cada trecho é uma frase e conhecemos a duração real do
  *   áudio dela.
- * - **Palavra: estimada.** O Kokoro não devolve marcação de tempo por palavra,
- *   então interpolamos pela posição do caractere dentro da frase. Numa frase de
- *   poucos segundos o desvio é pequeno, mas não é cravado — e por isso o realce
- *   da palavra é visualmente mais discreto que o da frase.
+ * - **Palavra: estimada.** Nenhuma das vozes devolve marcação de tempo por
+ *   palavra, então o tempo é repartido por peso: letras, mais um custo fixo por
+ *   palavra, mais a pausa que a pontuação impõe. Numa frase de poucos segundos o
+ *   desvio é pequeno, mas não é cravado — e por isso o realce da palavra é
+ *   visualmente mais discreto que o da frase.
  */
 
 /* Sem console nesta janela: um erro de JavaScript some sem deixar rastro, e a
@@ -91,6 +92,14 @@ let readingState = "idle";
    próxima frase, senão brigamos com quem quer reler algo acima. */
 let userScrolled = false;
 let scrollResetHandle = null;
+/* Fração do trecho corrente já falada. Guardada aqui porque quem a calcula é o
+   destaque por palavra, e quem a publica é a linha do tempo. */
+let currentRatio = 0;
+/* Índice da palavra que está soando dentro do trecho. É o que a pílula recebe
+   para mover o realce — ver updateWordHighlight. */
+let currentWord = -1;
+/* Laço de quadro: só existe enquanto está tocando. */
+let quadroDeProgresso = null;
 
 function formatTime(totalSeconds) {
   if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return "0:00";
@@ -101,32 +110,61 @@ function formatTime(totalSeconds) {
 
 /* ---------------------------------------------------------------- desenho */
 
-/** Quebra a frase em palavras, cada uma com onde começa e termina no texto. */
+/* Quanto tempo uma palavra ocupa na frase, em "caracteres equivalentes".
+ *
+ * A conta por caractere puro assume que toda palavra é falada na mesma
+ * velocidade por letra, e não é. Duas coisas fogem disso e são justamente as que
+ * o ouvido percebe:
+ *
+ * - **Cada palavra tem um custo fixo.** Começar a falar custa tempo que não tem
+ *   letra nenhuma; por isso "de" não leva um quinto do tempo de "devagar".
+ * - **Pontuação é pausa.** Uma vírgula segura a voz sem gastar caractere, e a
+ *   frase inteira depois dela ficava adiantada.
+ *
+ * Sem isso o destaque chegava cedo no começo da frase e tarde no fim, que é o
+ * padrão típico de erro acumulado. Os pesos são estimativa — o Piper não devolve
+ * marcação por palavra — mas erram bem menos que a contagem crua. */
+const WORD_OVERHEAD = 1.8;
+const PUNCTUATION_PAUSE = {
+  ",": 2.2, ";": 2.6, ":": 2.6,
+  ".": 3.4, "!": 3.4, "?": 3.4, "…": 3.8,
+};
+
+function wordWeight(piece) {
+  const last = piece[piece.length - 1];
+  return piece.length + WORD_OVERHEAD + (PUNCTUATION_PAUSE[last] ?? 0);
+}
+
+/** Quebra a frase em palavras, cada uma com quando começa e termina na fala. */
 function buildSentence(text, index) {
   const paragraph = document.createElement("span");
   paragraph.className = "sentence";
   paragraph.dataset.index = String(index);
 
-  const totalChars = text.length || 1;
   // Mantém os separadores para o texto continuar legível ao ser remontado.
-  const pieces = text.split(/(\s+)/);
-  let cursor = 0;
+  const pieces = text.split(/(\s+)/).filter((piece) => piece !== "");
+  const palavras = pieces.filter((piece) => !/^\s+$/.test(piece));
+  const total = palavras.reduce((soma, piece) => soma + wordWeight(piece), 0) || 1;
+
+  let acumulado = 0;
+  let ordem = 0;
 
   for (const piece of pieces) {
-    if (!piece) continue;
     if (/^\s+$/.test(piece)) {
       paragraph.appendChild(document.createTextNode(piece));
-      cursor += piece.length;
       continue;
     }
+    const peso = wordWeight(piece);
     const word = document.createElement("span");
     word.className = "word";
     word.textContent = piece;
     // Fração do trecho em que esta palavra começa e termina.
-    word.dataset.from = String(cursor / totalChars);
-    word.dataset.to = String((cursor + piece.length) / totalChars);
+    word.dataset.from = String(acumulado / total);
+    word.dataset.to = String((acumulado + peso) / total);
+    word.dataset.order = String(ordem);
     paragraph.appendChild(word);
-    cursor += piece.length;
+    acumulado += peso;
+    ordem += 1;
   }
 
   paragraph.appendChild(document.createTextNode(" "));
@@ -206,6 +244,12 @@ function publishProgress() {
     total: generatedDuration(),
     state: readingState,
     speed: Number(document.getElementById("speed").value),
+    // Trecho e posição dentro dele: é o que a legenda da pílula precisa para
+    // destacar a palavra. Vai daqui porque aqui é onde o áudio realmente toca —
+    // qualquer outra janela estaria estimando.
+    index: currentIndex,
+    ratio: currentRatio,
+    word: currentWord,
   }).catch(() => {});
 }
 
@@ -255,6 +299,10 @@ function markCurrent(index) {
   }
 
   currentIndex = index;
+  // A palavra volta a ser nenhuma: sem isso, o primeiro quadro do trecho novo
+  // publicaria a ordem da palavra do trecho anterior, e a pílula tentaria
+  // destacar uma posição que talvez nem exista na frase que começou.
+  currentWord = -1;
   const segment = segments[index];
   if (!segment) return;
 
@@ -285,6 +333,7 @@ function updateWordHighlight() {
     1,
     Math.max(0, (player.currentTime + WORD_LEAD_SECONDS) / segment.duration),
   );
+  currentRatio = ratio;
 
   /* A mesma posição vai para o backend, que a publica para a extensão de
      navegador desenhar o destaque na página original. Esta janela e a página
@@ -292,10 +341,23 @@ function updateWordHighlight() {
      e ela nasce aqui, onde o áudio de fato toca. */
   reportarProgresso(currentIndex, ratio);
 
+  let ordemFalando = currentWord;
   for (const word of segment.words) {
     const from = Number(word.dataset.from);
     const to = Number(word.dataset.to);
-    word.dataset.speaking = ratio >= from && ratio < to ? "true" : "false";
+    const falando = ratio >= from && ratio < to;
+    word.dataset.speaking = falando ? "true" : "false";
+    if (falando) ordemFalando = Number(word.dataset.order);
+  }
+
+  /* A pílula recebe o **índice da palavra**, e não a fração.
+   *
+   * Com a fração, cada janela reconstruía a divisão do texto por conta própria e
+   * bastava um espaço a mais para as duas discordarem sobre qual palavra é a
+   * atual. O índice não deixa margem: quem manda é quem tem o áudio. */
+  if (ordemFalando !== currentWord) {
+    currentWord = ordemFalando;
+    publishProgress();
   }
 }
 
@@ -353,6 +415,18 @@ function setState(next) {
   readingState = next;
   body.dataset.state = next;
 
+  /* Terminou, falhou ou parou: nenhuma palavra está sendo falada, e deixar a
+     última acesa faz parecer que ainda está. A palavra corrente também volta a
+     ser nenhuma, para o próximo quadro não publicar uma posição da leitura que
+     já acabou. */
+  if (next === "complete" || next === "failed" || next === "idle") {
+    const segment = segments[currentIndex];
+    if (segment?.words) {
+      segment.words.forEach((word) => { word.dataset.speaking = "false"; });
+    }
+    currentWord = -1;
+  }
+
   const labels = {
     idle: "Parado",
     generating: "Gerando a voz",
@@ -363,6 +437,11 @@ function setState(next) {
   };
   statusLabel.textContent = labels[next] ?? next;
   publishProgress();
+
+  // O backend guarda uma copia do estado para o atalho global saber se deve
+  // pausar, retomar ou comecar uma leitura nova. Sem este aviso os dois
+  // divergiam no primeiro caminho que nao passasse por ele.
+  invoke("reading_state", { name: next }).catch(() => {});
 
   const isPlaying = next === "playing";
   playPauseIcon.innerHTML = isPlaying ? ICON_PAUSE : ICON_PLAY;
@@ -418,6 +497,14 @@ listen("vox://reading", (event) => {
   if (campo) campo.textContent = motivo ?? "";
 
   if (state) setState(state);
+
+  // Pausa vinda do atalho global precisa pausar de verdade. Antes so trocava a
+  // etiqueta, e a voz continuava falando enquanto a janela dizia "Pausado".
+  if (state === "paused" && !player.paused) player.pause();
+  if (state === "playing" && player.paused && player.src) {
+    player.play().catch(() => {});
+  }
+
   if (state === "idle") {
     player.pause();
     player.removeAttribute("src");
@@ -431,24 +518,66 @@ listen("vox://reading", (event) => {
 
 /* ---------------------------------------------------------- eventos do player */
 
-player.addEventListener("timeupdate", () => {
+/* O destaque anda por quadro, e não a cada evento de tempo do áudio.
+ *
+ * O "timeupdate" dispara uma média de quatro vezes por segundo e o navegador não
+ * promete ritmo nenhum: o realce pulava em degraus de até 250 ms, que numa fala
+ * normal é quase uma palavra inteira de atraso. O laço de quadro acompanha o
+ * relógio do áudio de verdade; a linha do tempo continua no evento, porque ela
+ * mostra segundos e não ganharia nada em ser redesenhada 60 vezes por segundo.
+ *
+ * O laço nasce com a reprodução e nunca é cancelado: ele custa uma comparação
+ * por quadro quando não está tocando, e um `cancelAnimationFrame` esquecido em
+ * qualquer um dos caminhos de pausa, seek ou fim de trecho custaria o destaque
+ * parar de andar sem ninguém entender por quê. */
+function loopDeProgresso() {
+  quadroDeProgresso = requestAnimationFrame(loopDeProgresso);
+  if (readingState !== "playing" || player.paused) return;
   updateWordHighlight();
-  updateTimeline();
+}
+
+function garantirLoop() {
+  if (quadroDeProgresso === null) loopDeProgresso();
+}
+
+player.addEventListener("timeupdate", updateTimeline);
+player.addEventListener("ended", playNextIfReady);
+
+/* O estado vem do elemento de áudio, e não de quem pediu a ação.
+ *
+ * Antes cada botão anunciava o estado que pretendia causar, e bastava um caminho
+ * esquecido para a etiqueta mentir: avançar 15 s numa leitura terminada voltava a
+ * tocar de verdade, mas ninguém dizia "playing", e a pílula seguia mostrando o
+ * ícone de play com a voz falando. Aqui só existe uma fonte — o que o áudio está
+ * de fato fazendo — e todos os caminhos passam por ela. */
+player.addEventListener("play", () => {
+  garantirLoop();
+  setState("playing");
 });
 
-player.addEventListener("ended", playNextIfReady);
+player.addEventListener("pause", () => {
+  // Pausa também dispara ao trocar de faixa e ao terminar. Nenhuma das duas é
+  // uma pausa do usuário, e anunciá-las apagaria o estado real.
+  if (player.ended || readingState === "idle" || readingState === "complete") return;
+  setState("paused");
+});
 
 /* ---------------------------------------------------------------- controles */
 
 playPauseButton.addEventListener("click", () => {
   if (readingState === "playing") {
     player.pause();
-    setState("paused");
-  } else {
-    player.play().catch(() => {});
-    setState("playing");
+    return;
   }
-  invoke("toggle_reading").catch(() => {});
+
+  // Terminou: o gesto natural de apertar play numa leitura acabada e ouvir de
+  // novo, e nao ficar parado no fim do ultimo trecho sem nada acontecer.
+  if (readingState === "complete") {
+    seekTo(0);
+    return;
+  }
+
+  player.play().catch(() => {});
 });
 
 document.getElementById("back15").addEventListener("click", () => seekBy(-JUMP_SECONDS));

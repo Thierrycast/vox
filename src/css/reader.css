@@ -136,7 +136,7 @@ body {
 /* A palavra dentro da frase. Isto é estimado: interpolamos pela posição do
    caractere, porque a API não devolve marcação por palavra. O sublinhado é
    deliberadamente suave — fingir precisão que não temos seria pior. */
-.word { border-radius: 2px; transition: background-color .12s linear; }
+.word { border-radius: 3px; transition: background-color .28s cubic-bezier(.33, 1, .68, 1); }
 .word[data-speaking="true"] {
   background-color: rgb(from var(--accent) r g b / 34%);
   box-shadow: 0 1px 0 rgb(from var(--accent) r g b / 70%);
@@ -228,7 +228,7 @@ body {
   background: transparent;
   color: var(--fg);
   cursor: pointer;
-  transition: background-color .14s, opacity .14s;
+  transition: background-color .22s cubic-bezier(.33, 1, .68, 1), opacity .22s cubic-bezier(.33, 1, .68, 1);
 }
 .control:hover:not(:disabled) { background-color: var(--fg-10); }
 .control:disabled { opacity: .3; cursor: default; }
@@ -304,7 +304,7 @@ body {
   height: 4px;
   border-radius: 999px;
   background: var(--accent);
-  transition: width .1s linear;
+  transition: width .25s cubic-bezier(.33, 1, .68, 1);
 }
 .playhead {
   position: absolute;
@@ -313,7 +313,7 @@ body {
   border-radius: 999px;
   background: var(--fg);
   transform: translateX(-50%);
-  transition: left .1s linear;
+  transition: left .25s cubic-bezier(.33, 1, .68, 1);
   pointer-events: none;
 }
 

@@ -35,6 +35,16 @@ const PASTE_SETTLE: Duration = Duration::from_millis(30);
 /// silêncio.
 const CLIPBOARD_RETRIES: u32 = 3;
 
+/// Espera entre soltar os modificadores do atalho e mandar o `Ctrl+C`.
+///
+/// O app em foco precisa processar os keyups antes; sem a pausa ele ainda tem
+/// Alt como pressionado quando o C chega.
+const MODIFIER_SETTLE: Duration = Duration::from_millis(45);
+
+/// Passo e teto da espera pela área de transferência depois do `Ctrl+C`.
+const COPY_POLL: Duration = Duration::from_millis(25);
+const COPY_TIMEOUT: Duration = Duration::from_millis(650);
+
 pub struct Clipboard {
     inner: arboard::Clipboard,
 }
@@ -122,12 +132,43 @@ pub fn copy_selection_with_source() -> Result<(String, SelectionSource)> {
     let antes = previous.clone().unwrap_or_default();
 
     let mut enigo = Enigo::new(&EnigoSettings::default()).context("abrir o teclado virtual")?;
+
+    // Solta os modificadores do atalho antes de mandar o Ctrl+C.
+    //
+    // Isto não é zelo: é o motivo de a cópia nunca funcionar. Quando o atalho
+    // global dispara, a pessoa ainda está com Ctrl+Alt+L pressionado — o
+    // sistema avisa na descida da tecla, não na subida. O Ctrl+C sintético
+    // chega por cima disso e o app em foco recebe **Ctrl+Alt+C**, que não copia
+    // nada em lugar nenhum. Sem seleção nova, caíamos sempre para o conteúdo
+    // antigo da área de transferência — exatamente o sintoma de "só lê o que eu
+    // copiei antes".
+    //
+    // Soltar uma tecla que o usuário ainda segura é seguro: o app recebe o
+    // keyup, e o keyup físico que vem depois é ignorado por já estar solta.
+    for modificador in [Key::Alt, Key::Shift, Key::Meta, Key::Control] {
+        let _ = enigo.key(modificador, Direction::Release);
+    }
+    std::thread::sleep(MODIFIER_SETTLE);
+
     enigo.key(Key::Control, Direction::Press)?;
     enigo.key(Key::Unicode('c'), Direction::Click)?;
     enigo.key(Key::Control, Direction::Release)?;
 
-    std::thread::sleep(Duration::from_millis(120));
-    let depois = clipboard.text().unwrap_or_default();
+    // Espera a área de transferência mudar em vez de apostar num tempo fixo.
+    //
+    // 120 ms bastavam num editor leve e não bastavam num navegador com a página
+    // ocupada — e o erro aparecia como "leu o texto errado", sem nada no log.
+    // Conferir em intervalos curtos devolve rápido quando é rápido e continua
+    // funcionando quando não é.
+    let mut depois = String::new();
+    let limite = std::time::Instant::now() + COPY_TIMEOUT;
+    while std::time::Instant::now() < limite {
+        std::thread::sleep(COPY_POLL);
+        depois = clipboard.text().unwrap_or_default();
+        if !depois.trim().is_empty() && depois != antes {
+            break;
+        }
+    }
 
     // Mudou: a cópia funcionou. Restauramos o anterior e devolvemos o novo.
     if !depois.trim().is_empty() && depois != antes {

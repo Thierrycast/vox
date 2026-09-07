@@ -17,10 +17,13 @@
   --space-4: 4px;
   --space-8: 8px;
   --space-12: 12px;
-  --radius-4: 4px;
-  --radius-8: 8px;
-  --radius-20: 20px;
+  --radius-4: 5px;
+  --radius-8: 11px;
+  --radius-20: 22px;
   --easing-ease-out-expo: cubic-bezier(.16, 1, .3, 1);
+  /* Saída cúbica: sai firme e assenta sem o solavanco do expo, que freia
+     tão de repente que o movimento parece cortado. */
+  --easing-soft: cubic-bezier(.33, 1, .68, 1);
 
   /* Todo o resto deriva destes dois. */
   --hud-bg: #17171a;
@@ -94,20 +97,24 @@ body {
     inset 0 0 0 1px  rgba(255, 255, 255, .10);
 }
 
-/* Um pouco mais largo que os 120px da referência, e não muito mais: os botões
-   são absolutos e não disputam espaço com a onda, então a largura só precisa
-   dar folga ao traçado. Em 216px o card lia como vazio. */
-.hud[data-dictation] { width: 168px; }
-.hud[data-reading]   { width: 168px; }
+/* Todos os estados do HUD têm a mesma largura.
+ *
+ * Antes o "Copiado" era `width: auto` e nascia bem menor que a barra da onda: a
+ * mesma janela, no mesmo lugar, encolhia de repente e lia como se outro
+ * aplicativo tivesse aparecido. Ela é um widget só desenhando conteúdos
+ * diferentes, e o tamanho é o que sustenta isso.
+ *
+ * A exceção é a altura do erro, e só quando ele traz um motivo: o texto precisa
+ * de uma segunda linha, e cortá-lo custaria justamente a informação que decide o
+ * que fazer. Largura, raio e posição continuam idênticos. */
+.hud[data-dictation],
+.hud[data-reading],
+.hud[data-success],
+.hud[data-error] { width: 168px; }
 
-.hud[data-success] {
-  width: auto;
-  padding-inline: 16px;
-  white-space: nowrap;
-}
+.hud[data-success] { white-space: nowrap; }
 
 .hud[data-error] {
-  width: auto;
   height: auto;
   min-height: 36px;
   padding: 8px 12px;
@@ -115,7 +122,6 @@ body {
      os dois aparecem na mesma sessão, um logo depois do outro, e raios
      diferentes fazem parecer dois aplicativos. */
   border-radius: var(--radius-8);
-  white-space: nowrap;
 }
 
 /* --- brilho de estado: dois gradientes vindos de cima --- */
@@ -179,7 +185,7 @@ body {
   width: 100%;
   height: 28px;
   opacity: 1;
-  transition: opacity .16s;
+  transition: opacity .26s var(--easing-soft);
 }
 
 .wf {
@@ -216,7 +222,7 @@ body {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   pointer-events: none;
-  transition: opacity .16s;
+  transition: opacity .26s var(--easing-soft);
 }
 
 .hud:not([data-stopping]):is(:hover, :focus-within) .hud-waveform { opacity: .1; }
@@ -245,8 +251,8 @@ body {
   width: 100%;
   height: 28px;
   animation:
-    settle .3s ease-out forwards,
-    stopping-scan 1.4s linear .3s infinite;
+    settle .45s ease-out forwards,
+    stopping-scan 1.9s linear .35s infinite;
 }
 @keyframes settle { from { --blend: 1; } to { --blend: 0; } }
 
@@ -268,11 +274,16 @@ body {
      própria altura pela distância até ele. Sem `@property` declarando o tipo,
      o Chromium trataria as duas variáveis como texto e não interpolaria nada —
      a animação existiria e não se moveria. */
-  --diff:     calc(var(--i) - var(--spotlight));
-  --abs-diff: max(var(--diff), calc(-1 * var(--diff)));
-  /* Largura do foco: 6 barras para cada lado. Com 37 barras isso é um terço da
-     onda acesa por vez — estreito demais some no meio da largura nova. */
-  --t:        clamp(0, calc(1 - var(--abs-diff) / 6), 1);
+  --diff:   calc(var(--i) - var(--spotlight));
+  /* O foco decai devagar para trás e rápido para a frente.
+   *
+   * Simétrico, ele lia como um vulto indo e vindo: sem rastro, os dois sentidos
+   * ficam idênticos e o olho não sabe para onde a coisa anda. Com a cauda atrás,
+   * a onda tem direção — e direção é o que este estado precisa dizer, porque é
+   * aqui que se espera a transcrição chegar. */
+  --behind: max(calc(-1 * var(--diff)), 0);
+  --ahead:  max(var(--diff), 0);
+  --t:      clamp(0, calc(1 - var(--behind) / 9 - var(--ahead) / 4), 1);
   /* Até 18px numa faixa de 28: a referência ia só a 10px, que na largura maior
      mal se distinguia da linha de base. */
   --stop-h:   calc(2 + var(--t) * 16);
@@ -327,12 +338,23 @@ body {
 }
 .hud-err-details { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
 .hud-err-title { font-size: 13px; line-height: 1.25; }
-.hud-err-msg   { font-size: 11.5px; line-height: 1.25; color: rgba(255, 255, 255, .60); }
+/* Duas linhas no máximo: o motivo já vem achatado em 140 caracteres pelo
+   backend, e o que não couber continua inteiro na janela de leitura. */
+.hud-err-msg {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1.25;
+  color: rgba(255, 255, 255, .60);
+  overflow-wrap: anywhere;
+}
 .dot { width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0; }
 
 @media (prefers-reduced-motion: reduce) {
   .sparkle { animation: none; opacity: var(--sparkle-opacity); transform: translate(-50%, -50%); }
-  .hud-stopping { animation: settle .3s ease-out forwards; }
+  .hud-stopping { animation: settle .45s ease-out forwards; }
   .wf-bar { transition: none; }
 }
 
@@ -354,12 +376,18 @@ body {
 .player {
   position: relative;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: var(--space-8);
-  width: 52px;
+  /* Encostado à direita da janela, em vez de centralizado nela.
+   *
+   * O `body` centraliza, e centralizado o card ficava no meio de uma janela que
+   * muda de largura: ao abrir a legenda a janela crescia primeiro, o card ainda
+   * estreito ia para o meio dela, e só depois voltava para o lugar ao crescer —
+   * o pulo que se via. Ancorado à direita, e com a janela ancorada na borda
+   * direita da tela, o card fica parado: só a parede esquerda anda. */
+  margin-left: auto;
   padding: 10px 6px;
-  border-radius: 26px;
+  border-radius: 30px;
   background-color: #17171a;
   background-color: rgb(from var(--hud-bg) r g b / 94%);
   box-shadow: 0 8px 26px rgba(0, 0, 0, .45);
@@ -377,6 +405,144 @@ body {
   box-shadow:
     inset 0 .5px 0 0 rgba(255, 255, 255, .10),
     inset 0 0 0 1px  rgba(255, 255, 255, .10);
+}
+
+/* A coluna de controles é o que a pílula sempre foi; a legenda entra ao lado
+   dela sem empurrá-la, porque a janela cresce para a esquerda. */
+.player-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-8);
+  width: 52px;
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------------- legenda
+ *
+ * Fechada, ela tem largura zero e some — não fica um resto de padding ocupando
+ * espaço numa pílula que precisa ser estreita. A transição é da própria
+ * largura, e é por isso que o card cresce em vez de aparecer.
+ *
+ * A janela do sistema cresce junto, um quadro antes (ver `setCaptions` no
+ * hud.js): se ela ficasse do tamanho antigo, o texto nasceria cortado na borda;
+ * se ficasse grande com o card fechado, um retângulo transparente engoliria os
+ * cliques da tela atrás. */
+.player-captions {
+  display: flex;
+  /* O texto fica encostado no lado que não se move.
+   *
+   * A parede que anda é a esquerda; sem isto o texto acompanharia a parede e
+   * escorregaria junto, o que faz a abertura parecer um empurrão. Ancorado à
+   * direita, ele fica parado e vai sendo revelado — a mesma ideia do card, uma
+   * camada abaixo. */
+  justify-content: flex-end;
+  width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition:
+    width .42s var(--easing-soft),
+    margin .42s var(--easing-soft),
+    opacity .34s ease;
+  -webkit-app-region: no-drag;
+}
+
+.player[data-captions="on"] .player-captions {
+  width: 330px;
+  margin: 0 12px 0 8px;
+  opacity: 1;
+}
+
+.captions-text {
+  position: relative;
+  flex-shrink: 0;
+  /* Largura fixa, e não `auto`.
+   *
+   * O pai é que anima a largura; se o texto acompanhasse, ele se requebraria a
+   * cada quadro da abertura — as linhas mudariam de lugar enquanto o card
+   * cresce, e a posição do realce, que é medida em pixels, mudaria junto. Fixo,
+   * o texto já nasce com a quebra final e a animação vira uma revelação. */
+  width: 330px;
+  max-height: 226px;
+  overflow-y: auto;
+  /* As folgas verticais tiram a primeira e a última linha da faixa que a
+     máscara apaga.
+
+     Sem elas, a rolagem chegava ao fim com a palavra final dentro do desfoque —
+     e era justamente a que estava sendo lida que aparecia cortada. No topo
+     acontecia o mesmo com a primeira linha. A folga lateral é outra coisa: ela
+     dá espaço para o brilho do realce, que a rolagem corta reto na borda. */
+  padding: 18px 7px 30px;
+  /* Desfoque nas duas pontas, no lugar do corte seco da rolagem. O texto entra e
+     sai de cena em vez de aparecer e sumir numa linha reta — e a mesma máscara
+     dissolve o brilho que sobra nas bordas. */
+  -webkit-mask-image: linear-gradient(
+    to bottom, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(
+    to bottom, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  font-size: 15px;
+  line-height: 1.52;
+  /* Rolagem sem barra: ela apareceria e sumiria a cada frase, e o card é
+     pequeno demais para bancar esse movimento. */
+  scrollbar-width: none;
+}
+.captions-text::-webkit-scrollbar { display: none; }
+
+/* O realce é um retângulo só, que anda por baixo do texto.
+ *
+ * Pintar o fundo de cada palavra fazia o destaque sumir aqui e aparecer ali a
+ * cada palavra — pisca-pisca, não leitura. Sendo um elemento que se move, ele
+ * escorrega de uma palavra para a próxima e o olho acompanha sem reencontrá-lo.
+ *
+ * Anima **uma** propriedade: `transform`. A posição vem do `translate` e a
+ * largura do `scaleX` sobre uma base fixa — por isso a largura em CSS é 100px e
+ * não muda nunca.
+ *
+ * Animar `width` junto era o que fazia o realce encolher e reinflar a cada
+ * palavra: largura é propriedade de layout, o navegador refaz o cálculo a cada
+ * quadro e as duas bordas chegavam fora de fase. Com uma transformação só, o
+ * compositor resolve sem tocar no layout e as duas bordas andam juntas. */
+.cap-cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  width: 100px;
+  transform-origin: 0 0;
+  will-change: transform;
+  border-radius: 5px;
+  /* Translúcido a ponto de o texto continuar sendo o assunto: o realce diz onde
+     a voz está, não substitui a palavra. */
+  background-color: rgba(150, 106, 255, .26);
+  box-shadow: 0 0 9px rgba(150, 106, 255, .26);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform .32s var(--easing-soft),
+    opacity .28s ease;
+}
+.cap-cursor[data-visivel="true"] { opacity: 1; }
+
+/* O texto que ainda não foi falado fica presente mas discreto: dá o contexto do
+   que vem sem competir com a frase que está soando agora. */
+.cap-sentence {
+  color: rgba(255, 255, 255, .30);
+  transition: color .55s var(--easing-soft);
+}
+.cap-sentence[data-current="true"] { color: rgba(255, 255, 255, .94); }
+
+/* As palavras ficam acima do realce e só mudam de cor; quem pinta o fundo é o
+   retângulo que desliza por baixo. */
+.cap-word {
+  position: relative;
+  z-index: 1;
+  transition: color .3s var(--easing-soft);
+}
+.cap-word[data-speaking="true"] { color: #fff; }
+
+.player-btn[data-on="true"] {
+  background: rgba(150, 106, 255, .30);
+  color: var(--hud-fg);
 }
 
 .player-time {
@@ -415,7 +581,7 @@ body {
 .player-ring .value {
   stroke: var(--hud-fg);
   stroke-linecap: round;
-  transition: stroke-dashoffset .2s linear;
+  transition: stroke-dashoffset .45s var(--easing-soft);
 }
 
 .player-play {
@@ -429,7 +595,7 @@ body {
   background: rgba(255, 255, 255, .12);
   color: var(--hud-fg);
   cursor: pointer;
-  transition: background-color .14s;
+  transition: background-color .22s var(--easing-soft);
 }
 .player-play:hover { background: rgba(255, 255, 255, .22); }
 .player-play:focus-visible { outline: 2px solid var(--hud-fg); outline-offset: 2px; }
@@ -453,7 +619,7 @@ body {
   background: transparent;
   color: rgba(255, 255, 255, .70);
   cursor: pointer;
-  transition: background-color .14s, color .14s;
+  transition: background-color .22s var(--easing-soft), color .22s var(--easing-soft);
   -webkit-app-region: no-drag;
 }
 .player-btn:hover { background: rgba(255, 255, 255, .12); color: var(--hud-fg); }
@@ -482,11 +648,26 @@ body {
 }
 
 /* Estados: enquanto gera não há o que controlar, então o transporte recua e o
-   anel pulsa no lugar do progresso. */
+   botão principal roda no lugar de oferecer um play que não tocaria nada.
+   O giro para sozinho quando o estado vira `playing` — não há nada para
+   desligar, porque é o seletor que deixa de casar. */
 .player[data-state="generating"] .player-jumps,
 .player[data-state="generating"] .player-speed { opacity: .3; pointer-events: none; }
-.player[data-state="generating"] .player-ring .value { animation: ring-pulse 1.4s ease-in-out infinite; }
-@keyframes ring-pulse { 0%, 100% { opacity: .25; } 50% { opacity: .9; } }
+.player[data-state="generating"] .player-play { pointer-events: none; }
+.player[data-state="generating"] .player-play svg { opacity: 0; }
+.player[data-state="generating"] .player-play::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 999px;
+  /* Um anel com só um lado colorido: girando, o vazio vira o rastro. Feito com
+     borda em vez de SVG para não haver um segundo desenho a manter em sincronia
+     com o tamanho do botão. */
+  border: 2px solid rgba(255, 255, 255, .22);
+  border-top-color: var(--hud-fg);
+  animation: player-spin 1.1s linear infinite;
+}
+@keyframes player-spin { to { transform: rotate(360deg); } }
 
 .player[data-state="failed"] .player-ring .value { stroke: var(--red); }
 
@@ -507,4 +688,9 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .player-ring .value { animation: none; transition: none; }
+  /* O giro some, mas o anel fica: ele é o que diz "ainda estou preparando", e
+     sem ele o botão parado vira um play que não responde. */
+  .player[data-state="generating"] .player-play::after { animation: none; }
+  .player-captions { transition: none; }
+  .cap-sentence, .cap-word, .cap-cursor { transition: none; }
 }

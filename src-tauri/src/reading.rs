@@ -211,8 +211,20 @@ impl Reader {
         // O estado vai primeiro, e só depois a janela aparece. Na ordem
         // inversa o HUD reaparecia com o último quadro do ditado ainda no DOM —
         // o "Copiado" — até o evento chegar e o player substituir o conteúdo.
+        let (abrir_leitor, com_legenda) = {
+            let state = app.state::<AppState>();
+            let settings = state.settings.lock();
+            (settings.open_reader_on_read, settings.reading_captions)
+        };
+
         emit(&app, ReadingState::Generating, None);
-        crate::dictation::shape_hud(&app, crate::dictation::HudShape::Column);
+        // A forma já nasce certa: abrir estreito e alargar em seguida faria a
+        // pílula saltar na tela a cada leitura de quem deixa a legenda ligada.
+        crate::dictation::shape_hud(&app, if com_legenda {
+            crate::dictation::HudShape::ColumnCaptions
+        } else {
+            crate::dictation::HudShape::Column
+        });
         if let Some(hud) = app.get_webview_window("hud") {
             let _ = hud.show();
         }
@@ -220,11 +232,6 @@ impl Reader {
         // A janela já existe escondida desde a partida; mostrar custa um quadro.
         // Ela sobe antes do primeiro áudio para o texto aparecer imediatamente,
         // em vez de o usuário encarar o nada enquanto a voz é gerada.
-        let abrir_leitor = {
-            let state = app.state::<AppState>();
-            let settings = state.settings.lock();
-            settings.open_reader_on_read
-        };
         if abrir_leitor {
             if let Some(window) = app.get_webview_window("reader") {
                 crate::raise(&window);
@@ -370,6 +377,35 @@ impl Reader {
         let mut queue = self.queue.lock();
         if index < queue.segments.len() {
             queue.cursor = index;
+        }
+    }
+
+    /// O front avisa que a reprodução mudou de estado por conta própria.
+    ///
+    /// Quem toca o áudio é a janela de leitura, então é ela que sabe se está
+    /// tocando de verdade — e não este lado, que só sabe o que pediu. Sem este
+    /// aviso os dois divergiam: bastava avançar 15 s numa leitura terminada para
+    /// o áudio voltar a tocar enquanto aqui o estado continuava `Complete`, e o
+    /// atalho seguinte começava uma leitura nova em vez de pausar.
+    ///
+    /// Não emite evento: a informação veio do front, e devolvê-la como evento
+    /// faria os dois se avisarem em círculo.
+    pub fn sync_state(&self, state: ReadingState) {
+        let mut queue = self.queue.lock();
+        let anterior = queue.state();
+
+        // Parado é parado. Depois de um `stop` a janela ainda dispara o evento
+        // de pausa do elemento de áudio, e aceitá-lo ressuscitaria uma leitura
+        // que já não existe — o atalho seguinte tentaria retomar o nada.
+        if anterior == ReadingState::Idle || anterior == state {
+            return;
+        }
+
+        queue.state = Some(state);
+        drop(queue);
+
+        if state == ReadingState::Paused {
+            self.sounds.play(Cue::SpeakPause);
         }
     }
 

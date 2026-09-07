@@ -35,12 +35,16 @@ impl ShortcutReport {
 pub fn build(app: &AppHandle, report: &ShortcutReport) -> tauri::Result<()> {
     let separador = PredefinedMenuItem::separator(app)?;
 
+    let preferencias = MenuItem::with_id(
+        app, "preferencias", "Preferências…", true, None::<&str>)?;
     let ler = MenuItem::with_id(
         app, "ler_clipboard", "Ler a área de transferência", true, None::<&str>)?;
     let leitor = MenuItem::with_id(
         app, "abrir_leitor", "Abrir a janela de leitura", true, None::<&str>)?;
     let vozes = MenuItem::with_id(
         app, "abrir_vozes", "Comparar vozes no navegador", true, None::<&str>)?;
+    // O arquivo continua acessível: o painel cobre o que se muda no dia a dia,
+    // e o JSON cobre o resto — inclusive copiar o token da ponte.
     let config = MenuItem::with_id(
         app, "abrir_config", "Abrir o arquivo de preferências", true, None::<&str>)?;
     let sair = MenuItem::with_id(app, "sair", "Sair do Vox", true, None::<&str>)?;
@@ -73,7 +77,11 @@ pub fn build(app: &AppHandle, report: &ShortcutReport) -> tauri::Result<()> {
 
     let menu = Menu::with_items(
         app,
-        &[&ajuda, &separador, &ler, &leitor, &separador, &vozes, &config, &separador, &sair],
+        &[
+            &ajuda, &separador,
+            &preferencias, &ler, &leitor, &separador,
+            &vozes, &config, &separador, &sair,
+        ],
     )?;
 
     let dica = if report.has_failure() {
@@ -100,7 +108,10 @@ pub fn build(app: &AppHandle, report: &ShortcutReport) -> tauri::Result<()> {
                 ..
             } = event
             {
-                mostrar_leitor(tray.app_handle());
+                // O clique esquerdo abre as preferências, e não o leitor: o
+                // leitor já está a um clique no relógio da pílula, e o painel
+                // não tinha nenhum caminho curto.
+                crate::open_settings_from_tray(tray.app_handle());
             }
         })
         .build(app)?;
@@ -115,6 +126,7 @@ fn responder_menu(app: &AppHandle, id: &str) {
             app.exit(0);
         }
         "abrir_leitor" => mostrar_leitor(app),
+        "preferencias" => crate::open_settings_from_tray(app),
         "ler_clipboard" => {
             let handle = app.clone();
             tauri::async_runtime::spawn(async move {

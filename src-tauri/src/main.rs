@@ -17,6 +17,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tracing_subscriber::fmt::writer::MakeWriterExt;
 
 use crate::api::SpeechApi;
 use crate::config::Settings;
@@ -89,12 +90,65 @@ fn save_settings(state: State<'_, AppState>, mut settings: Settings) -> Result<(
 
     // Aplica no ato o que muda comportamento agora, sem esperar um restart.
     state.sounds.set_enabled(settings.sounds_enabled);
+    state.sounds.set_volume(settings.sounds_volume);
     if let Some(directory) = &settings.external_sounds_directory {
         state.sounds.load_external_dictation_sounds(directory);
     }
 
     *state.settings.lock() = settings;
     Ok(())
+}
+
+/// Toca um aviso para a pessoa ouvir o volume que acabou de escolher.
+///
+/// Sem isto o controle de volume seria um número no escuro: só dá para ajustar
+/// o que se ouve, e esperar o próximo erro acontecer para saber se ficou bom não
+/// é ajuste, é adivinhação.
+#[tauri::command]
+fn preview_sound(state: State<'_, AppState>) {
+    state.sounds.play(sounds::Cue::DictationSuccess);
+}
+
+/// Liga e desliga a legenda guiada, e ajusta a janela ao novo tamanho.
+///
+/// O front chama isto **antes** de abrir e **depois** de fechar: crescendo, a
+/// janela precisa já caber o card que vai crescer dentro dela; encolhendo, ela
+/// só pode encolher quando a animação terminou, senão o texto some cortado em
+/// vez de recolher.
+#[tauri::command]
+fn set_reading_captions(app: AppHandle, state: State<'_, AppState>, enabled: bool) {
+    {
+        let mut settings = state.settings.lock();
+        settings.reading_captions = enabled;
+        if let Err(err) = settings.save() {
+            tracing::warn!(?err, "não deu para guardar a preferência de legenda");
+        }
+    }
+
+    dictation::shape_hud(&app, if enabled {
+        dictation::HudShape::ColumnCaptions
+    } else {
+        dictation::HudShape::Column
+    });
+}
+
+/// Abre o painel de preferências.
+#[tauri::command]
+fn open_settings(app: AppHandle) {
+    show_settings(&app);
+}
+
+/// A bandeja abre o mesmo painel; o comando existe para o front, este para ela.
+pub fn open_settings_from_tray(app: &AppHandle) {
+    show_settings(app);
+}
+
+fn show_settings(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("settings") else {
+        tracing::error!("janela de preferências não encontrada");
+        return;
+    };
+    raise(&window);
 }
 
 #[tauri::command]
@@ -158,6 +212,29 @@ fn reading_progress(state: State<'_, AppState>, index: usize, ratio: f32) {
     state.bridge.set_progress(index, ratio);
 }
 
+/// O front informa que a reprodução mudou de estado.
+///
+/// O nome vem como texto porque é o mesmo vocabulário que já viaja nos eventos
+/// `vox://reading`; traduzir aqui mantém um dicionário só.
+#[tauri::command]
+fn reading_state(state: State<'_, AppState>, name: String) {
+    use reading::ReadingState;
+
+    let novo = match name.as_str() {
+        "generating" => ReadingState::Generating,
+        "playing" => ReadingState::Playing,
+        "paused" => ReadingState::Paused,
+        "complete" => ReadingState::Complete,
+        "failed" => ReadingState::Failed,
+        "idle" => ReadingState::Idle,
+        outro => {
+            tracing::warn!(estado = outro, "estado de leitura desconhecido");
+            return;
+        }
+    };
+    state.reader.sync_state(novo);
+}
+
 /// O front informa qual trecho entrou em reprodução.
 #[tauri::command]
 fn reading_cursor(state: State<'_, AppState>, index: usize) {
@@ -196,9 +273,13 @@ async fn read_text(
     text: Option<String>,
 ) -> Result<(), String> {
     // Sem texto explícito, copia o que estiver selecionado no app em foco.
+    // Numa thread de bloqueio: ver o comentário em `toggle_reading_shortcut`.
     let text = match text {
         Some(value) if !value.trim().is_empty() => value,
-        _ => paste::copy_selection().map_err(|err| err.to_string())?,
+        _ => tauri::async_runtime::spawn_blocking(paste::copy_selection)
+            .await
+            .map_err(|err| err.to_string())?
+            .map_err(|err| err.to_string())?,
     };
 
     if text.trim().is_empty() {
@@ -385,9 +466,15 @@ async fn toggle_reading_shortcut(app: AppHandle) {
         }
         // Parada, terminada ou falhada: começa uma leitura nova da seleção.
         _ => {
-            let (selection, origem) = match paste::copy_selection_with_source() {
-                Ok((text, origem)) if !text.trim().is_empty() => (text, origem),
-                Ok(_) => {
+            // Fora da thread do runtime: copiar a seleção solta modificadores,
+            // manda teclas e espera a área de transferência mudar — até ~700 ms
+            // de bloqueio. Feito aqui dentro, isso congelaria também a ponte da
+            // extensão, que vive no mesmo runtime e é consultada a cada 120 ms.
+            let copia = tauri::async_runtime::spawn_blocking(paste::copy_selection_with_source).await;
+
+            let (selection, origem) = match copia {
+                Ok(Ok((text, origem))) if !text.trim().is_empty() => (text, origem),
+                Ok(Ok(_)) => {
                     // Nem seleção nem área de transferência: abre o leitor para
                     // a pessoa colar à mão, em vez de não fazer nada e parecer
                     // que o atalho não funcionou.
@@ -395,8 +482,13 @@ async fn toggle_reading_shortcut(app: AppHandle) {
                     show_reader(app.clone());
                     return;
                 }
-                Err(err) => {
+                Ok(Err(err)) => {
                     tracing::error!(?err, "não foi possível ler a seleção");
+                    show_reader(app.clone());
+                    return;
+                }
+                Err(err) => {
+                    tracing::error!(?err, "a tarefa de cópia não terminou");
                     show_reader(app.clone());
                     return;
                 }
@@ -503,13 +595,52 @@ impl bridge::Acoes for AcoesDaPonte {
 
 // ---------------------------------------------------------------- partida
 
+/// Acima disto o log vira histórico, e histórico atrapalha quem está lendo o
+/// erro de agora. Um arquivo anterior é guardado; o resto se perde.
+const LIMITE_DO_LOG: u64 = 2 * 1024 * 1024;
+
+/// Abre o arquivo de log, girando o anterior se ele já ficou grande.
+fn open_log_file() -> Option<std::fs::File> {
+    let caminho = config::log_path();
+    std::fs::create_dir_all(caminho.parent()?).ok()?;
+
+    if matches!(std::fs::metadata(&caminho), Ok(dados) if dados.len() > LIMITE_DO_LOG) {
+        let _ = std::fs::rename(&caminho, caminho.with_extension("log.old"));
+    }
+
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&caminho)
+        .ok()
+}
+
+/// Em release o processo não tem console: `windows_subsystem = "windows"` tira o
+/// stdout, e um log que só existe na saída padrão desaparece justamente na
+/// versão que roda no dia a dia. Por isso o arquivo é o destino principal, e a
+/// saída padrão continua junto para quem roda em debug pelo terminal.
+fn start_logging() {
+    let filtro = tracing_subscriber::EnvFilter::try_from_env("VOX_LOG")
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+
+    match open_log_file() {
+        Some(arquivo) => {
+            let destino = Arc::new(arquivo).and(std::io::stdout);
+            tracing_subscriber::fmt()
+                .with_env_filter(filtro)
+                .with_ansi(false)
+                .with_writer(destino)
+                .init();
+        }
+        None => {
+            tracing_subscriber::fmt().with_env_filter(filtro).init();
+            tracing::warn!(caminho = ?config::log_path(), "sem arquivo de log");
+        }
+    }
+}
+
 fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_env("VOX_LOG")
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    start_logging();
 
     let settings = Settings::load();
     let base_url = config::base_url();
@@ -527,6 +658,7 @@ fn main() {
 
     let sound_bank = Arc::new(SoundBank::new().expect("abrir a saída de áudio"));
     sound_bank.set_enabled(settings.sounds_enabled);
+    sound_bank.set_volume(settings.sounds_volume);
     if let Some(directory) = &settings.external_sounds_directory {
         sound_bank.load_external_dictation_sounds(directory);
     }
@@ -557,10 +689,14 @@ fn main() {
             show_reader,
             reading_cursor,
             reading_progress,
+            reading_state,
             reading_finished,
             stop_reading,
             toggle_reading,
             read_text,
+            preview_sound,
+            set_reading_captions,
+            open_settings,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -617,6 +753,17 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // Fechar as preferências é só sair delas: destruir a webview
+            // custaria recarregar a página inteira na próxima abertura, e o
+            // painel é justamente o que se abre para mexer em duas coisas e
+            // fechar de novo.
+            if window.label() == "settings" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                return;
+            }
             if window.label() != "reader" {
                 return;
             }

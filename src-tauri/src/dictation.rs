@@ -375,12 +375,13 @@ impl Dictation {
         let (text, should_submit) =
             paste::resolve_submit(&text, settings.submit_mode, &settings.submit_keyword);
 
+        // Sem chave para ligar e desligar: `fit_to_context` só faz alguma coisa
+        // quando sabe o que está antes do cursor, e hoje ninguém sabe — ler isso
+        // exige UI Automation, que ainda não existe aqui. A preferência que
+        // existia oferecia escolha entre duas coisas idênticas; quando a leitura
+        // do cursor chegar, o ajuste passa a valer sozinho.
         let before_caret = self.session.lock().text_before_caret.clone();
-        let final_text = if settings.context_aware_paste {
-            paste::fit_to_context(&text, before_caret.as_deref())
-        } else {
-            text.clone()
-        };
+        let final_text = paste::fit_to_context(&text, before_caret.as_deref());
 
         let outcome = match settings.output_action {
             OutputAction::Clipboard => paste::Clipboard::new()
@@ -441,6 +442,8 @@ pub enum HudShape {
     Bar,
     /// Pílula vertical do player de leitura.
     Column,
+    /// A mesma pílula com a legenda guiada aberta ao lado.
+    ColumnCaptions,
 }
 
 impl HudShape {
@@ -449,7 +452,15 @@ impl HudShape {
             // Folga em volta do desenho: a janela é transparente e a sombra
             // precisa de espaço, senão sai cortada na borda.
             HudShape::Bar => (360.0, 84.0),
-            HudShape::Column => (84.0, 240.0),
+            // A altura é a mesma das duas formas da leitura de propósito: abrir
+            // a legenda muda só a largura, e a pílula não pula na vertical
+            // debaixo do cursor que acabou de clicar.
+            HudShape::Column => (84.0, 268.0),
+            // A janela cresce junto com o card, e não antes dele: uma janela
+            // transparente maior que o desenho continua capturando o clique na
+            // área vazia, e o usuário fica sem entender por que a página atrás
+            // parou de responder num retângulo invisível.
+            HudShape::ColumnCaptions => (452.0, 268.0),
         }
     }
 }
@@ -464,7 +475,15 @@ pub fn shape_hud(app: &AppHandle, shape: HudShape) {
     let Some(window) = app.get_webview_window("hud") else { return };
 
     let (width, height) = shape.size();
-    let _ = window.set_size(tauri::LogicalSize::new(width, height));
+
+    // Reafirma o "sempre por cima" a cada mudança de forma.
+    //
+    // A janela nasce com `alwaysOnTop` no tauri.conf.json, mas isso é o estado
+    // inicial e não uma garantia: no Windows o atributo se perde quando outra
+    // janela topmost sobe (instalador, UAC, um jogo em tela cheia) e nada
+    // devolve. O HUD então continua visível — atrás de tudo, que é o mesmo que
+    // não estar. Reafirmar é barato e idempotente.
+    let _ = window.set_always_on_top(true);
 
     // Janela escondida nem sempre tem monitor associado no Windows. Quando isso
     // acontece o HUD fica onde estava — o que já pareceu "o HUD não abriu",
@@ -476,6 +495,8 @@ pub fn shape_hud(app: &AppHandle, shape: HudShape) {
                 ?outro,
                 "sem monitor para posicionar o HUD; ele fica na posição anterior"
             );
+            // Sem para onde posicionar, ao menos o tamanho é aplicado.
+            let _ = window.set_size(tauri::LogicalSize::new(width, height));
             return;
         }
     };
@@ -484,14 +505,43 @@ pub fn shape_hud(app: &AppHandle, shape: HudShape) {
 
     let (x, y) = match shape {
         HudShape::Bar => ((screen.width - width) / 2.0, screen.height - height - 96.0),
-        HudShape::Column => (screen.width - width - 12.0, (screen.height - height) / 2.0),
+        // As duas formas da leitura ancoram na mesma borda direita: ao abrir a
+        // legenda o card cresce para a esquerda e os controles não saem do
+        // lugar sob o cursor.
+        HudShape::Column | HudShape::ColumnCaptions => {
+            (screen.width - width - 12.0, (screen.height - height) / 2.0)
+        }
     };
     tracing::debug!(
         ?shape, largura = width, altura = height,
         tela_l = screen.width, tela_a = screen.height, escala = scale,
         x, y, "posicionando o HUD"
     );
-    let _ = window.set_position(tauri::LogicalPosition::new(x, y));
+
+    /* A ordem entre mover e redimensionar depende do sentido.
+     *
+     * As duas chamadas são independentes e o sistema desenha entre elas. Ao
+     * encolher, redimensionar primeiro deixa a janela um quadro estreita na
+     * posição da janela larga — a pílula, que é ancorada à direita, aparece
+     * quase quatrocentos pixels mais à esquerda e volta. Era esse o piscar no
+     * fim do fechamento da legenda.
+     *
+     * A regra é sempre a mesma: primeiro a operação que não deixa a janela
+     * ocupando espaço que ela não deveria. Encolhendo, mover; crescendo,
+     * redimensionar. */
+    let atual = window
+        .outer_size()
+        .ok()
+        .map(|tamanho| tamanho.to_logical::<f64>(scale).width)
+        .unwrap_or(width);
+
+    if width <= atual {
+        let _ = window.set_position(tauri::LogicalPosition::new(x, y));
+        let _ = window.set_size(tauri::LogicalSize::new(width, height));
+    } else {
+        let _ = window.set_size(tauri::LogicalSize::new(width, height));
+        let _ = window.set_position(tauri::LogicalPosition::new(x, y));
+    }
 }
 
 pub fn show_hud(app: &AppHandle, push_to_talk: bool) {

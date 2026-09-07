@@ -5,7 +5,8 @@
   "windows": [
     "hud",
     "reader",
-    "live"
+    "live",
+    "settings"
   ],
   "permissions": [
     "core:default",

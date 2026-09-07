@@ -54,6 +54,18 @@
         "focus": false,
         "visible": false,
         "center": false
+      },
+      {
+        "label": "settings",
+        "url": "settings.html",
+        "title": "Vox — Preferencias",
+        "width": 640,
+        "height": 720,
+        "minWidth": 520,
+        "minHeight": 480,
+        "resizable": true,
+        "visible": false,
+        "decorations": true
       }
     ],
     "security": {

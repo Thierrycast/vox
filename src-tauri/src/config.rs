@@ -31,7 +31,6 @@ pub struct Settings {
     pub input_device: Option<String>,
     pub transcription_model: String,
     pub output_action: OutputAction,
-    pub context_aware_paste: bool,
     pub submit_mode: SubmitMode,
     pub submit_keyword: String,
     pub submit_key: SubmitKey,
@@ -65,6 +64,15 @@ pub struct Settings {
     /// veio de onde não dá para acompanhar (um terminal que rolou, um PDF), a
     /// janela é útil: por isso ela continua a um clique, no relógio do player.
     pub open_reader_on_read: bool,
+
+    /// Mostra o texto sendo lido dentro da própria pílula flutuante.
+    ///
+    /// Diferente de `open_reader_on_read`: aqui não abre janela nenhuma — a
+    /// pílula cresce e passa a exibir o texto com o trecho falado destacado.
+    /// Quem só quer ouvir deixa desligado e a pílula continua do tamanho de
+    /// sempre. O botão no próprio player liga e desliga, e o valor volta para
+    /// cá para a próxima leitura começar como a última terminou.
+    pub reading_captions: bool,
 
     // --- ponte da extensão de navegador ---
     /// Sobe o servidor local que a extensão usa. Desligue para fechar a porta.
@@ -103,7 +111,13 @@ pub struct Settings {
 
     // --- geral ---
     pub sounds_enabled: bool,
-    pub mute_while_recording: bool,
+    /// Volume dos avisos sonoros, de 0 a 1.
+    ///
+    /// Separado de `sounds_enabled` porque as duas perguntas são diferentes:
+    /// "quero ser avisado?" e "quão alto?". Antes só existia a primeira, e quem
+    /// achava o bipe alto demais não tinha saída senão desligar tudo — e aí
+    /// perdia o aviso de erro junto.
+    pub sounds_volume: f32,
     /// Pasta com os `.aif` do Raycast, para quem já os tem instalados.
     pub external_sounds_directory: Option<PathBuf>,
 }
@@ -117,13 +131,13 @@ impl Default for Settings {
             // quiser privacidade total troca nas preferências.
             transcription_model: "groq/whisper-large-v3-turbo".into(),
             output_action: OutputAction::Paste,
-            context_aware_paste: true,
             submit_mode: SubmitMode::Disabled,
             submit_keyword: "manda ver".into(),
             submit_key: SubmitKey::Enter,
             live_transcription: true,
             show_live_transcription: false,
             open_reader_on_read: false,
+            reading_captions: false,
 
             bridge_enabled: true,
             bridge_port: 8765,
@@ -145,7 +159,7 @@ impl Default for Settings {
             shortcut_read: "Ctrl+Alt+L".into(),
 
             sounds_enabled: true,
-            mute_while_recording: false,
+            sounds_volume: 1.0,
             external_sounds_directory: default_raycast_sounds_directory(),
         }
     }
@@ -187,6 +201,12 @@ impl Settings {
     pub fn sanitize(&mut self) {
         self.speed = self.speed.clamp(MIN_SPEED, MAX_SPEED);
         self.prebuffer_ratio = self.prebuffer_ratio.clamp(0.0, 0.5);
+        // NaN vindo de um JSON editado à mão passaria pelo clamp e chegaria ao
+        // `rodio` como volume inválido, silenciando tudo sem erro nenhum.
+        if !self.sounds_volume.is_finite() {
+            self.sounds_volume = 1.0;
+        }
+        self.sounds_volume = self.sounds_volume.clamp(0.0, 1.0);
 
         self.vocabulary.retain(|term| {
             let trimmed = term.trim();
@@ -376,4 +396,11 @@ mod tests {
         settings.sanitize();
         assert_eq!(settings.submit_keyword, "manda ver");
     }
+}
+
+/// Onde o log vai parar. Fica ao lado do `settings.json` de propósito: o item da
+/// bandeja que abre as preferências abre a mesma pasta, e assim o arquivo que
+/// explica um erro está a um clique de quem acabou de ver o erro.
+pub fn log_path() -> PathBuf {
+    settings_path().with_file_name("vox.log")
 }

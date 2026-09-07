@@ -82,16 +82,24 @@ impl Cue {
     }
 }
 
+/// O que atravessa o canal até a thread de áudio: os bytes e quão alto tocar.
+///
+/// O volume viaja junto com o som em vez de morar na thread porque quem decide
+/// é quem dispara: assim uma mudança de preferência vale já no próximo bipe,
+/// sem precisar acordar a thread para avisá-la.
+type Pedido = (Vec<u8>, f32);
+
 pub struct SoundBank {
     /// Canal para a thread que detém a saída de áudio.
-    player: Sender<Vec<u8>>,
+    player: Sender<Pedido>,
     external: Mutex<Vec<(Cue, Vec<u8>)>>,
     enabled: Mutex<bool>,
+    volume: Mutex<f32>,
 }
 
 impl SoundBank {
     pub fn new() -> Result<Self> {
-        let (tx, rx) = mpsc::channel::<Vec<u8>>();
+        let (tx, rx) = mpsc::channel::<Pedido>();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
 
         std::thread::Builder::new()
@@ -111,7 +119,7 @@ impl SoundBank {
 
                 // Fica escutando até o canal fechar, o que só acontece quando o
                 // app encerra.
-                while let Ok(bytes) = rx.recv() {
+                while let Ok((bytes, volume)) = rx.recv() {
                     let sink = match Sink::try_new(&handle) {
                         Ok(sink) => sink,
                         Err(err) => {
@@ -119,6 +127,7 @@ impl SoundBank {
                             continue;
                         }
                     };
+                    sink.set_volume(volume);
                     match Decoder::new(Cursor::new(bytes)) {
                         // `detach` deixa o som terminar sozinho; o stink morre
                         // com o stream, que vive enquanto o app viver.
@@ -144,11 +153,20 @@ impl SoundBank {
             player: tx,
             external: Mutex::new(Vec::new()),
             enabled: Mutex::new(true),
+            volume: Mutex::new(1.0),
         })
     }
 
     pub fn set_enabled(&self, enabled: bool) {
         *self.enabled.lock() = enabled;
+    }
+
+    /// Volume dos avisos, de 0 a 1.
+    ///
+    /// O `rodio` aceita valores acima de 1 e amplifica, o que estoura o áudio de
+    /// 24 bits dos nossos WAVs. O teto fica aqui e não em quem chama.
+    pub fn set_volume(&self, volume: f32) {
+        *self.volume.lock() = volume.clamp(0.0, 1.0);
     }
 
     /// Carrega os sons do ditado de uma pasta no disco, se ela existir.
@@ -197,8 +215,9 @@ impl SoundBank {
             return;
         };
 
-        tracing::debug!(?cue, bytes = bytes.len(), "enfileirando som");
-        if self.player.send(bytes).is_err() {
+        let volume = *self.volume.lock();
+        tracing::debug!(?cue, bytes = bytes.len(), volume, "enfileirando som");
+        if self.player.send((bytes, volume)).is_err() {
             tracing::warn!(?cue, "a thread de som morreu; nenhum som será tocado");
         }
     }

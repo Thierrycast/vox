@@ -1,0 +1,166 @@
+/* Painel de preferências.
+ *
+ * Mesma paleta do HUD e da janela de leitura — é o mesmo aplicativo, e uma
+ * terceira aparência faria parecer um utilitário de outra pessoa.
+ *
+ * O painel não tem botão de salvar: cada mudança grava sozinha. Um formulário
+ * com "Aplicar" convida a fechar sem clicar, e aí a preferência não valeu sem
+ * ninguém avisar. O aviso "salvo" no topo é o retorno de que aconteceu.
+ */
+
+:root {
+  --bg: #131315;
+  --card: #1b1b1f;
+  --fg: #f2f2f4;
+  --muted: rgba(255, 255, 255, .52);
+  --line: rgba(255, 255, 255, .10);
+  --accent: #966aff;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 13.5px;
+}
+
+body { display: flex; flex-direction: column; }
+
+.topo {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 16px 22px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.topo h1 { margin: 0; font-size: 16px; font-weight: 600; }
+
+/* O aviso de gravação aparece e some sozinho. Ele confirma sem pedir nada em
+   troca — quem já sabe que salvou não precisa clicar em lugar nenhum. */
+.salvo {
+  font-size: 11.5px;
+  color: #37d67a;
+  opacity: 0;
+  transition: opacity .2s;
+}
+.salvo[data-visivel="true"] { opacity: 1; }
+
+.painel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 22px 24px;
+}
+
+.grupo {
+  margin-top: 18px;
+  padding: 4px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.grupo h2 {
+  margin: 14px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.linha {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 11px 0;
+  border-top: 1px solid var(--line);
+}
+.grupo h2 + .linha { border-top: 0; }
+
+.rotulo { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.rotulo small {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+code {
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: .92em;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, .08);
+}
+
+input[type="text"],
+input[type="number"],
+select {
+  flex-shrink: 0;
+  width: 232px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .04);
+  color: inherit;
+  font: inherit;
+}
+input[type="text"]:focus,
+input[type="number"]:focus,
+select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+input[readonly] { color: var(--muted); font-family: ui-monospace, monospace; font-size: 12px; }
+
+input[type="checkbox"] {
+  flex-shrink: 0;
+  width: 17px;
+  height: 17px;
+  accent-color: var(--accent);
+}
+
+.controle-faixa {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  width: 232px;
+}
+.controle-faixa input[type="range"] { flex: 1; accent-color: var(--accent); }
+.controle-faixa input[type="text"] { width: auto; flex: 1; }
+.controle-faixa output {
+  min-width: 44px;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.botao {
+  padding: 6px 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .06);
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.botao:hover { background: rgba(255, 255, 255, .12); }
+.botao:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.rodape {
+  margin: 18px 2px 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* Some sem deixar buraco: `display: none` no lugar do `visibility`, porque a
+   linha da palavra-chave não existe quando o envio automático está desligado. */
+[hidden] { display: none !important; }
