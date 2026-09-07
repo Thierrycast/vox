@@ -16,10 +16,26 @@ O mesmo atalho serve para os três momentos da leitura: começa, pausa e retoma.
 
 ## Antes de rodar
 
-### 1. O nome da API precisa resolver
+O Vox precisa de uma `speech-api` alcançável. Há dois caminhos, e o padrão não
+exige configuração nenhuma.
 
-`speech-api.lab.home` só existe na LAN e não está em DNS nenhum. Acrescente ao
-`C:\Windows\System32\drivers\etc\hosts` (como administrador):
+### O caminho padrão — tailnet
+
+```bash
+cp .env.example .env
+```
+
+O `.env.example` já vem com `VOX_API_URL=http://100.122.39.56:8010`. Esse
+endereço é do tailnet: funciona de qualquer lugar, não passa pelo Traefik e
+**não pede credencial** — qualquer dispositivo do tailnet alcança a API. Não há
+mais nada a fazer.
+
+### O caminho da LAN — autenticado
+
+Só faz sentido em casa, e é o único que passa pelo `panel-auth` do Traefik.
+
+Primeiro, o nome precisa resolver. `speech-api.lab.home` não está em DNS nenhum;
+acrescente ao `C:\Windows\System32\drivers\etc\hosts`, como administrador:
 
 ```
 192.168.1.36  speech-api.lab.home
@@ -28,10 +44,7 @@ O mesmo atalho serve para os três momentos da leitura: começa, pausa e retoma.
 O certificado é do **Thierry Lab CA**, que esta máquina já confia — não precisa
 de `-k` nem de exceção.
 
-### 2. A credencial
-
-A rota está atrás do middleware `panel-auth@file` do Traefik, então sem
-credencial vem `401`. Crie um usuário só para o app, para poder revogá-lo sem
+Depois, a credencial. Crie um usuário só para o app, para poder revogá-lo sem
 mexer na sua senha pessoal:
 
 ```bash
@@ -39,15 +52,10 @@ docker run --rm httpd:alpine htpasswd -nbB voice-client '<senha>'
 ```
 
 Acrescente a linha resultante ao `panel-auth` em
-`/DATA/AppData/traefik-v3/config/dynamic/lab-routes.yml`, no argos.
+`/DATA/AppData/traefik-v3/config/dynamic/lab-routes.yml`, no argos, e preencha
+`VOX_API_USER` / `VOX_API_PASSWORD` no `.env`. O `.env` está no `.gitignore`.
 
-### 3. O ambiente
-
-```bash
-cp .env.example .env
-```
-
-e preencha `VOX_API_USER` / `VOX_API_PASSWORD`. O `.env` está no `.gitignore`.
+Por fim, aponte `VOX_API_URL` para `https://speech-api.lab.home`.
 
 ---
 
@@ -225,6 +233,22 @@ Da API e do desenho de referência:
 | Poll dos níveis | 50 ms, com transição de 130 ms na barra |
 | HUD após sucesso | 2000 ms |
 | Espera antes do envio | 50 ms |
+
+## O que ainda não existe
+
+Está em uso diário e o que está aqui funciona, mas nem tudo o que a configuração
+promete está ligado:
+
+| | |
+|---|---|
+| Painel de preferências | não existe; edita-se o `settings.json` na mão, e a bandeja abre o arquivo |
+| Volume dos alertas | som é liga/desliga, sem controle de nível |
+| `vocabulary` e `custom_instructions` | guardados e **nunca enviados** — falta o passo de pós-processamento |
+| `context_aware_paste` | o texto antes do cursor é sempre `None`, então a colagem consciente de contexto nunca entra de fato |
+| `mute_while_recording` | configurável e sem efeito |
+| Destaque fora do navegador | só a extensão acompanha o texto na tela; em outros apps abre-se a janela de leitura |
+
+Nada disso quebra o uso: ditado e leitura funcionam ponta a ponta.
 
 ## Backlog do backend
 
