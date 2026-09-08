@@ -65,6 +65,7 @@ const campos = {
   customInstructions: "custom_instructions",
   shortcutDictate: "shortcut_dictate",
   shortcutRead: "shortcut_read",
+  shortcutShowWidget: "shortcut_show_widget",
   bridgeEnabled: "bridge_enabled",
   bridgePort: "bridge_port",
 };

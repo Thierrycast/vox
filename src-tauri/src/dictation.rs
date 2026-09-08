@@ -593,6 +593,22 @@ pub fn show_hud(app: &AppHandle, push_to_talk: bool) {
     );
 }
 
+/// Mostra o widget sem iniciar uma ação de voz.
+///
+/// É útil para reposicionar o HUD e para confirmar que o Vox está disponível,
+/// sem capturar microfone nem tentar ler a seleção atual.
+pub fn show_idle_hud(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("hud") else {
+        tracing::error!("janela do HUD não encontrada");
+        return;
+    };
+    shape_hud(app, HudShape::Bar);
+    let _ = app.emit("vox://hud", serde_json::json!({ "state": "idle" }));
+    if let Err(error) = window.show() {
+        tracing::error!(?error, "não deu para mostrar o HUD em repouso");
+    }
+}
+
 pub fn hide_hud(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("hud") {
         let _ = window.hide();

@@ -276,6 +276,10 @@ listen("vox://hud", (event) => {
   const payload = event.payload ?? {};
 
   switch (payload.state) {
+    case "idle":
+      desenharRepouso();
+      break;
+
     case "recording":
       startRecording(payload);
       break;

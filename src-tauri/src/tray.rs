@@ -21,14 +21,16 @@ use crate::AppState;
 pub struct ShortcutReport {
     pub dictate: Option<String>,
     pub read: Option<String>,
+    pub widget: Option<String>,
     /// A combinação configurada, para o menu mostrar a real e não uma fixa.
     pub dictate_label: String,
     pub read_label: String,
+    pub widget_label: String,
 }
 
 impl ShortcutReport {
     pub fn has_failure(&self) -> bool {
-        self.dictate.is_some() || self.read.is_some()
+        self.dictate.is_some() || self.read.is_some() || self.widget.is_some()
     }
 }
 
@@ -71,9 +73,19 @@ pub fn build(app: &AppHandle, report: &ShortcutReport) -> tauri::Result<()> {
         false,
         None::<&str>,
     )?;
+    let atalho_widget = MenuItem::with_id(
+        app,
+        "info_widget",
+        match &report.widget {
+            None => format!("Mostrar widget   {}", report.widget_label),
+            Some(erro) => format!("⚠ Mostrar widget — indisponível ({erro})"),
+        },
+        false,
+        None::<&str>,
+    )?;
 
     let ajuda = Submenu::with_id_and_items(
-        app, "ajuda", "Atalhos", true, &[&atalho_ditado, &atalho_leitura])?;
+        app, "ajuda", "Atalhos", true, &[&atalho_ditado, &atalho_leitura, &atalho_widget])?;
 
     let menu = Menu::with_items(
         app,

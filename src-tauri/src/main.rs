@@ -138,6 +138,12 @@ fn open_settings(app: AppHandle) {
     show_settings(&app);
 }
 
+/// Mostra o widget em repouso, sem iniciar ditado ou leitura.
+#[tauri::command]
+fn show_floating_widget(app: AppHandle) {
+    dictation::show_idle_hud(&app);
+}
+
 /// A bandeja abre o mesmo painel; o comando existe para o front, este para ela.
 pub fn open_settings_from_tray(app: &AppHandle) {
     show_settings(app);
@@ -312,10 +318,14 @@ async fn read_text(
 fn register_shortcuts(app: &AppHandle) -> tray::ShortcutReport {
     let mut report = tray::ShortcutReport::default();
 
-    let (texto_ditado, texto_leitura) = {
+    let (texto_ditado, texto_leitura, texto_widget) = {
         let state = app.state::<AppState>();
         let settings = state.settings.lock();
-        (settings.shortcut_dictate.clone(), settings.shortcut_read.clone())
+        (
+            settings.shortcut_dictate.clone(),
+            settings.shortcut_read.clone(),
+            settings.shortcut_show_widget.clone(),
+        )
     };
 
     let dictate = match parse_shortcut(&texto_ditado) {
@@ -332,9 +342,17 @@ fn register_shortcuts(app: &AppHandle) -> tray::ShortcutReport {
             Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyL)
         }
     };
+    let show_widget = match parse_shortcut(&texto_widget) {
+        Some(shortcut) => shortcut,
+        None => {
+            report.widget = Some(format!("combinação inválida: {texto_widget}"));
+            Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyV)
+        }
+    };
 
     report.dictate_label = texto_ditado;
     report.read_label = texto_leitura;
+    report.widget_label = texto_widget;
 
     let handle = app.clone();
     if let Err(err) = app.global_shortcut().on_shortcut(dictate, move |_app, _sc, event| {
@@ -358,6 +376,17 @@ fn register_shortcuts(app: &AppHandle) -> tray::ShortcutReport {
     }) {
         tracing::error!(?err, "Ctrl+Shift+S indisponível");
         report.read = Some(motivo_curto(&err));
+    }
+
+    let handle = app.clone();
+    if let Err(err) = app.global_shortcut().on_shortcut(show_widget, move |_app, _sc, event| {
+        if event.state() != ShortcutState::Pressed {
+            return;
+        }
+        dictation::show_idle_hud(&handle);
+    }) {
+        tracing::error!(?err, "Ctrl+Alt+V indisponível");
+        report.widget = Some(motivo_curto(&err));
     }
 
     report
@@ -719,6 +748,7 @@ fn main() {
             preview_sound,
             set_reading_captions,
             open_settings,
+            show_floating_widget,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

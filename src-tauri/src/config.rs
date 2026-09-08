@@ -129,6 +129,7 @@ pub struct Settings {
     /// que abre o DevTools no Chrome.
     pub shortcut_dictate: String,
     pub shortcut_read: String,
+    pub shortcut_show_widget: String,
 
     /// Último local para onde a pessoa arrastou o widget.
     pub hud_position: Option<WindowPosition>,
@@ -182,6 +183,7 @@ impl Default for Settings {
             // Chrome, e o navegador ganha a disputa. `Ctrl+Alt+L` de "Ler" é
             // raro em atalho de aplicativo e não colide com nada do Windows.
             shortcut_read: "Ctrl+Alt+L".into(),
+            shortcut_show_widget: "Ctrl+Alt+V".into(),
             hud_position: None,
 
             sounds_enabled: true,
