@@ -556,34 +556,56 @@ struct AcoesDaPonte {
 }
 
 impl bridge::Acoes for AcoesDaPonte {
-    fn ler(&self, texto: String) -> Vec<String> {
-        let state = self.app.state::<AppState>();
-        let (voice, speed, prebuffer) = {
-            let settings = state.settings.lock();
-            (settings.voice.clone(), settings.speed, settings.prebuffer_ratio)
-        };
-
-        // Divide aqui e devolve a mesma lista que vai ser falada. A extensão
-        // precisa da divisão idêntica para casar trecho com pedaço do DOM;
-        // dividir dos dois lados daria listas diferentes na primeira
-        // abreviação ou reticência.
-        let segments = api::split_text(&texto);
-        state.bridge.set_segments(segments.clone());
-
+    fn ler(&self, texto: String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<String>> + Send>> {
         let app = self.app.clone();
-        tauri::async_runtime::spawn(async move {
-            let state = app.state::<AppState>();
-            let handle = app.clone();
-            if let Err(err) = state
-                .reader
-                .speak(handle, texto, voice, speed, prebuffer)
-                .await
-            {
-                tracing::error!(?err, "leitura pedida pela extensão falhou");
-            }
-        });
 
-        segments
+        Box::pin(async move {
+            let (voice, speed, prebuffer, normalizar) = {
+                let state = app.state::<AppState>();
+                let settings = state.settings.lock();
+                (
+                    settings.voice.clone(),
+                    settings.speed,
+                    settings.prebuffer_ratio,
+                    settings.normalize_before_reading,
+                )
+            };
+
+            // O texto é preparado aqui, e não dentro da fala, porque a divisão
+            // precisa sair do texto limpo — e é esta lista que a extensão usa
+            // para casar cada trecho com o pedaço do DOM que vai destacar.
+            // Preparar de novo lá dentro poderia mudar os trechos debaixo de um
+            // destaque já montado, e com a correção ligada custaria duas idas ao
+            // modelo em vez de uma.
+            let preparado = {
+                let state = app.state::<AppState>();
+                state.reader.prepare(&texto, normalizar).await
+            };
+
+            // Divide aqui e devolve a mesma lista que vai ser falada. Dividir dos
+            // dois lados daria listas diferentes na primeira abreviação ou
+            // reticência.
+            let segments = api::split_text(&preparado);
+            {
+                let state = app.state::<AppState>();
+                state.bridge.set_segments(segments.clone());
+            }
+
+            let leitura = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let state = leitura.state::<AppState>();
+                let handle = leitura.clone();
+                if let Err(err) = state
+                    .reader
+                    .speak_prepared(handle, preparado, voice, speed, prebuffer)
+                    .await
+                {
+                    tracing::error!(?err, "leitura pedida pela extensão falhou");
+                }
+            });
+
+            segments
+        })
     }
 
     fn parar(&self) {

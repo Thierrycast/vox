@@ -34,6 +34,23 @@ pub struct SpeechApi {
     credentials: Option<Credentials>,
 }
 
+/// Resposta de `/text/prepare`.
+///
+/// Só o texto interessa ao fluxo; o resto do corpo é diagnóstico, e desses só o
+/// erro da normalização vale registrar — ele diz por que a correção não saiu.
+#[derive(Debug, Deserialize)]
+struct PrepareResponse {
+    text: String,
+    #[serde(default)]
+    normalized: Option<NormalizeReport>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NormalizeReport {
+    #[serde(default)]
+    error: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct TtsResponse {
     /// Caminho para buscar o áudio. `audio_file` da API é o mesmo nome sem a
@@ -131,14 +148,27 @@ impl SpeechApi {
     }
 
     /// Transcreve um WAV. `model` é `vosk` (local) ou `groq/whisper-large-v3-turbo`.
-    pub async fn transcribe(&self, wav: Vec<u8>, model: &str) -> Result<TranscriptionResponse> {
+    ///
+    /// O `prompt` ensina vocabulário ao modelo remoto: nomes próprios e termos
+    /// técnicos que ele não teria como adivinhar. Sem ele "Traefik" volta como
+    /// "trafic" toda vez. O Vosk local ignora o campo — reconhecedor offline não
+    /// tem onde encaixar contexto.
+    pub async fn transcribe(
+        &self,
+        wav: Vec<u8>,
+        model: &str,
+        prompt: &str,
+    ) -> Result<TranscriptionResponse> {
         let part = reqwest::multipart::Part::bytes(wav)
             .file_name("audio.wav")
             .mime_str("audio/wav")?;
-        let form = reqwest::multipart::Form::new()
+        let mut form = reqwest::multipart::Form::new()
             .part("file", part)
             .text("model", model.to_string())
             .text("response_format", "json");
+        if !prompt.trim().is_empty() {
+            form = form.text("prompt", prompt.to_string());
+        }
 
         let response = self
             .request(reqwest::Method::POST, "/v1/audio/transcriptions")
@@ -152,6 +182,41 @@ impl SpeechApi {
     }
 
     /// Gera a fala de um trecho e devolve os bytes do mp3 já baixados.
+    /// Devolve o texto pronto para virar voz: sem marcação e, se pedido, com
+    /// acentuação e ortografia corrigidas.
+    ///
+    /// Chamado **uma vez, com o texto inteiro**, antes de fatiar. Duas razões:
+    /// fatiar Markdown corta a frase no lugar errado — um título ou uma linha de
+    /// tabela viram fronteira falsa —, e normalizar trecho a trecho multiplicaria
+    /// o custo do modelo e ainda lhe daria menos contexto.
+    ///
+    /// Falhar aqui não impede a leitura: o texto original ainda é legível, só não
+    /// está limpo. A API também limpa de novo na síntese, e a limpeza é
+    /// idempotente.
+    pub async fn prepare_text(&self, text: &str, normalize: bool) -> Result<String> {
+        let response = self
+            .request(reqwest::Method::POST, "/text/prepare")
+            .json(&serde_json::json!({
+                "text": text,
+                "sanitize": true,
+                "normalize": normalize,
+            }))
+            .send()
+            .await
+            .context("pedir a preparação do texto")?;
+
+        ensure_ok(&response)?;
+        let corpo: PrepareResponse = response.json().await.context("ler o texto preparado")?;
+
+        if let Some(motivo) = corpo.normalized.and_then(|estado| estado.error) {
+            // A correção é opcional por natureza; perdê-la não vale interromper a
+            // leitura, mas some do log se não for dita aqui.
+            tracing::warn!(motivo, "normalização do texto não foi aplicada");
+        }
+
+        Ok(corpo.text)
+    }
+
     pub async fn speak(&self, text: &str, voice: &str, speed: f32) -> Result<(TtsResponse, Vec<u8>)> {
         let response = self
             .request(reqwest::Method::POST, "/tts")

@@ -339,7 +339,16 @@ impl Dictation {
         let wav = recording.to_wav();
         tracing::debug!(bytes = wav.len(), "enviando para transcrição");
 
-        let transcription = match self.api.transcribe(wav, &settings.transcription_model).await {
+        // Vocabulário e instruções viram o `prompt` da transcrição — é assim que
+        // se ensina um nome próprio ao modelo. Antes eles eram guardados e nunca
+        // enviados, porque a API não tinha onde recebê-los; desde a 2.6.0 tem.
+        let prompt = crate::config::transcription_prompt(&settings);
+
+        let transcription = match self
+            .api
+            .transcribe(wav, &settings.transcription_model, &prompt)
+            .await
+        {
             Ok(response) => response.text,
             Err(err) if !reserva.trim().is_empty() => {
                 tracing::warn!(

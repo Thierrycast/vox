@@ -179,7 +179,31 @@ impl Reader {
         emit(app, ReadingState::Playing, None);
     }
 
-    /// Lê um texto do começo ao fim.
+    /// Prepara o texto no servidor e devolve o que de fato vai ser falado.
+    ///
+    /// Separado da leitura porque quem entra pela extensão precisa da lista de
+    /// trechos **antes** de a fala começar, para casar cada um com o pedaço do
+    /// DOM que vai destacar. Preparar duas vezes seria pior que um round-trip a
+    /// mais: com a correção ligada, seriam dois modelos e o dobro da espera.
+    pub async fn prepare(&self, text: &str, normalize: bool) -> String {
+        match self.api.prepare_text(text, normalize).await {
+            Ok(preparado) if !preparado.trim().is_empty() => preparado,
+            Ok(_) => {
+                tracing::warn!("preparo devolveu texto vazio; usando o original");
+                text.to_string()
+            }
+            Err(err) => {
+                // O servidor limpa de novo na síntese, então perder esta etapa
+                // custa o corte pior, não a marcação falada. Interromper a
+                // leitura por isso seria trocar um problema pequeno por um
+                // grande.
+                tracing::warn!(?err, "preparo do texto falhou; seguindo com o original");
+                text.to_string()
+            }
+        }
+    }
+
+    /// Lê um texto do começo ao fim, preparando-o antes.
     pub async fn speak(
         &self,
         app: AppHandle,
@@ -188,18 +212,37 @@ impl Reader {
         speed: f32,
         prebuffer_ratio: f32,
     ) -> Result<()> {
-        let chunks = api::split_text(&text);
-        if chunks.is_empty() {
-            return Ok(());
-        }
+        self.speak_inner(app, text, voice, speed, prebuffer_ratio, false).await
+    }
 
+    /// Como `speak`, mas para texto que já passou por `prepare`.
+    pub async fn speak_prepared(
+        &self,
+        app: AppHandle,
+        text: String,
+        voice: String,
+        speed: f32,
+        prebuffer_ratio: f32,
+    ) -> Result<()> {
+        self.speak_inner(app, text, voice, speed, prebuffer_ratio, true).await
+    }
+
+    async fn speak_inner(
+        &self,
+        app: AppHandle,
+        text: String,
+        voice: String,
+        speed: f32,
+        prebuffer_ratio: f32,
+        already_prepared: bool,
+    ) -> Result<()> {
+        // A geração sobe antes de qualquer trabalho: quem parar a leitura durante
+        // o preparo do texto — que pode levar segundos com a correção ligada —
+        // invalida esta aqui, e o resto do método percebe e desiste.
         let generation = {
             let mut queue = self.queue.lock();
             queue.generation += 1;
-            queue.segments = chunks
-                .into_iter()
-                .map(|text| Segment { text, audio: None, seconds: 0.0 })
-                .collect();
+            queue.segments.clear();
             queue.cursor = 0;
             queue.state = Some(ReadingState::Generating);
             queue.generation
@@ -211,10 +254,14 @@ impl Reader {
         // O estado vai primeiro, e só depois a janela aparece. Na ordem
         // inversa o HUD reaparecia com o último quadro do ditado ainda no DOM —
         // o "Copiado" — até o evento chegar e o player substituir o conteúdo.
-        let (abrir_leitor, com_legenda) = {
+        let (abrir_leitor, com_legenda, normalizar) = {
             let state = app.state::<AppState>();
             let settings = state.settings.lock();
-            (settings.open_reader_on_read, settings.reading_captions)
+            (
+                settings.open_reader_on_read,
+                settings.reading_captions,
+                settings.normalize_before_reading,
+            )
         };
 
         emit(&app, ReadingState::Generating, None);
@@ -236,6 +283,45 @@ impl Reader {
             if let Some(window) = app.get_webview_window("reader") {
                 crate::raise(&window);
             }
+        }
+
+        // O texto é preparado **antes** de ser fatiado.
+        //
+        // A limpeza tira a marcação que o sintetizador leria em voz alta — o
+        // "asterisco asterisco" de um negrito em Markdown. Fatiar antes de
+        // limpar seria pior do que parece: um título ou uma linha de tabela
+        // viram fronteira de frase falsa, e os trechos sairiam cortados no lugar
+        // errado. Uma chamada, com o texto inteiro, e o resto do fluxo trabalha
+        // com o texto que de fato vai ser falado.
+        // Já preparado é o caso de quem entrou pela extensão: ela recebeu os
+        // trechos antes da fala começar, e prepará-los de novo poderia mudá-los
+        // debaixo do destaque que ela já montou.
+        let texto = if already_prepared {
+            text.clone()
+        } else {
+            self.prepare(&text, normalizar).await
+        };
+
+        // Parar durante o preparo invalida esta leitura.
+        if self.queue.lock().generation != generation {
+            tracing::debug!("leitura descartada durante o preparo do texto");
+            return Ok(());
+        }
+
+        let chunks = api::split_text(&texto);
+        if chunks.is_empty() {
+            return Ok(());
+        }
+
+        {
+            let mut queue = self.queue.lock();
+            if queue.generation != generation {
+                return Ok(());
+            }
+            queue.segments = chunks
+                .into_iter()
+                .map(|trecho| Segment { text: trecho, audio: None, seconds: 0.0 })
+                .collect();
         }
 
         // O front desenha o texto inteiro antes de qualquer áudio existir, para

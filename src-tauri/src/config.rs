@@ -74,6 +74,17 @@ pub struct Settings {
     /// cá para a próxima leitura começar como a última terminou.
     pub reading_captions: bool,
 
+    /// Manda o texto ser corrigido antes de ser falado.
+    ///
+    /// A limpeza de marcação é sempre feita e custa milissegundos. Isto é outra
+    /// coisa: acentuação, ortografia e pontuação corrigidas por um modelo, o que
+    /// custa de 3,7 a 6,9 segundos por parágrafo — medido no gateway do lab,
+    /// contra ~1 s da síntese do mesmo texto.
+    ///
+    /// Desligado por padrão porque essa espera vale para texto mal escrito e é
+    /// pura perda para texto que já está certo, que é a maioria do que se lê.
+    pub normalize_before_reading: bool,
+
     // --- ponte da extensão de navegador ---
     /// Sobe o servidor local que a extensão usa. Desligue para fechar a porta.
     pub bridge_enabled: bool,
@@ -138,6 +149,7 @@ impl Default for Settings {
             show_live_transcription: false,
             open_reader_on_read: false,
             reading_captions: false,
+            normalize_before_reading: false,
 
             bridge_enabled: true,
             bridge_port: 8765,
@@ -403,4 +415,29 @@ mod tests {
 /// explica um erro está a um clique de quem acabou de ver o erro.
 pub fn log_path() -> PathBuf {
     settings_path().with_file_name("vox.log")
+}
+
+/// Monta o `prompt` da transcrição a partir do vocabulário e das instruções.
+///
+/// O campo existe no contrato da OpenAI para dar contexto ao reconhecedor: uma
+/// lista de nomes próprios e termos técnicos que ele não teria como adivinhar.
+/// Sem isso "Traefik" volta como "trafic" toda vez, e nenhuma correção posterior
+/// desfaz isso sem adivinhar junto.
+///
+/// A ordem é deliberada: os termos primeiro. O campo tem teto de tamanho do lado
+/// do servidor, e o que for cortado deve ser a instrução em prosa — que ajuda
+/// menos que a lista de palavras.
+pub fn transcription_prompt(settings: &Settings) -> String {
+    let mut partes = Vec::new();
+
+    if !settings.vocabulary.is_empty() {
+        partes.push(format!("Termos: {}.", settings.vocabulary.join(", ")));
+    }
+
+    let instrucoes = settings.custom_instructions.trim();
+    if !instrucoes.is_empty() {
+        partes.push(instrucoes.to_string());
+    }
+
+    partes.join(" ")
 }

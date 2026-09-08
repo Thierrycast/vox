@@ -151,11 +151,45 @@
 
       <label class="linha">
         <span class="rotulo">
+          Corrigir o texto antes de ler
+          <small>Acentuação, ortografia e pontuação, por um modelo. Custa de 4 a 7 segundos
+                 por parágrafo, antes do primeiro som — vale para texto mal escrito e é
+                 pura espera para texto que já está certo.</small>
+        </span>
+        <input type="checkbox" id="normalizeBeforeReading">
+      </label>
+
+      <label class="linha">
+        <span class="rotulo">
           Abrir a janela de leitura
           <small>Útil quando o texto veio de onde não dá para acompanhar — um terminal que
                  rolou, um PDF.</small>
         </span>
         <input type="checkbox" id="openReaderOnRead">
+      </label>
+    </section>
+
+    <section class="grupo">
+      <h2>Vocabulário</h2>
+
+      <label class="linha">
+        <span class="rotulo">
+          Termos
+          <small>Nomes próprios e jargão que a transcrição erra, separados por vírgula.
+                 Vão como contexto para o modelo — sem isso, "Traefik" volta como "trafic".
+                 Só vale para os modelos remotos; o Vosk local ignora.</small>
+        </span>
+        <input type="text" id="vocabulary" spellcheck="false" placeholder="Traefik, CasaOS, Tailscale">
+      </label>
+
+      <label class="linha">
+        <span class="rotulo">
+          Instruções
+          <small>Uma frase sobre o que você costuma ditar. Entra no mesmo contexto, depois
+                 dos termos.</small>
+        </span>
+        <input type="text" id="customInstructions" spellcheck="false"
+               placeholder="Falo sobre infraestrutura e programação.">
       </label>
     </section>
 

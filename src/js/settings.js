@@ -60,7 +60,9 @@ const campos = {
   speed: "speed",
   prebufferRatio: "prebuffer_ratio",
   readingCaptions: "reading_captions",
+  normalizeBeforeReading: "normalize_before_reading",
   openReaderOnRead: "open_reader_on_read",
+  customInstructions: "custom_instructions",
   shortcutDictate: "shortcut_dictate",
   shortcutRead: "shortcut_read",
   bridgeEnabled: "bridge_enabled",
@@ -91,6 +93,10 @@ function desenhar(settings) {
   }
 
   elemento("externalSounds").value = settings.external_sounds_directory ?? "";
+  // O vocabulário é uma lista no disco e uma linha de texto na tela: digitar
+  // separado por vírgula é o gesto natural, e um editor de lista para meia dúzia
+  // de palavras seria interface demais para pouca coisa.
+  elemento("vocabulary").value = (settings.vocabulary ?? []).join(", ");
   elemento("bridgeToken").value = settings.bridge_token ?? "";
 
   elemento("soundsVolumeValor").textContent = porcentagem(settings.sounds_volume);
@@ -138,6 +144,11 @@ function coletar() {
 
   const pasta = elemento("externalSounds").value.trim();
   settings.external_sounds_directory = pasta === "" ? null : pasta;
+
+  settings.vocabulary = elemento("vocabulary").value
+    .split(",")
+    .map((termo) => termo.trim())
+    .filter((termo) => termo !== "");
 
   return settings;
 }
@@ -244,6 +255,7 @@ for (const id of Object.keys(campos)) {
 }
 
 elemento("externalSounds").addEventListener("input", agendarGravacao);
+elemento("vocabulary").addEventListener("input", agendarGravacao);
 elemento("submitMode").addEventListener("change", atualizarDependencias);
 
 /* O volume só se ajusta de ouvido. O som toca depois da gravação para ser o

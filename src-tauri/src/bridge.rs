@@ -28,6 +28,8 @@
 //! 2. **Token no cabeçalho `X-Vox-Token`.** Corta outras extensões e qualquer
 //!    programa local que descubra a porta.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -99,7 +101,17 @@ struct RespostaLeitura {
 /// Fica como traço para o módulo não puxar o estado inteiro do app — e para o
 /// teste poder passar um dublê que só registra o que foi pedido.
 pub trait Acoes: Send + Sync + 'static {
-    fn ler(&self, texto: String) -> Vec<String>;
+    /// Começa a ler e devolve os trechos na ordem em que serão falados.
+    ///
+    /// É assíncrono porque o texto passa pelo servidor antes de ser dividido: a
+    /// limpeza da marcação muda onde as frases começam e terminam, e a extensão
+    /// precisa receber **a lista que vai ser falada**, não uma divisão do texto
+    /// cru que divergiria dela na primeira URL ou no primeiro título.
+    ///
+    /// Futuro em caixa em vez de `async fn` no traço: `dyn Acoes` precisa ser
+    /// objeto de traço para atravessar o servidor, e `async fn` em traço não
+    /// produz um tipo que possa ser embrulhado assim sem uma dependência a mais.
+    fn ler(&self, texto: String) -> Pin<Box<dyn Future<Output = Vec<String>> + Send>>;
     fn parar(&self);
 }
 
@@ -249,7 +261,7 @@ async fn atender(
     let (codigo, corpo) = match (pedido.metodo.as_str(), pedido.caminho.as_str()) {
         ("POST", "/read") => match serde_json::from_slice::<PedidoLeitura>(&pedido.corpo) {
             Ok(entrada) if !entrada.text.trim().is_empty() => {
-                let segments = acoes.ler(entrada.text);
+                let segments = acoes.ler(entrada.text).await;
                 let resposta = RespostaLeitura { ok: true, segments };
                 (200, serde_json::to_string(&resposta)?)
             }

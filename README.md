@@ -256,6 +256,39 @@ A posição da fala vem da janela de leitura, que é quem tem o elemento de áud
 As duas mostram o mesmo texto ao mesmo tempo; se cada uma estimasse por conta
 própria onde a voz está, o olho perceberia a divergência na hora.
 
+## O texto é preparado antes de ser fatiado
+
+Quem lê um `.md`, uma resposta de chat ou documentação encontra marcação a cada
+parágrafo — e um sintetizador lê o que recebe: `**MCP**` vira "asterisco
+asterisco MCP asterisco asterisco".
+
+A limpeza é do servidor (speech-api 2.6.0), não daqui, porque são vários
+consumidores e cada um faria uma versão pior da mesma coisa. O Vox chama
+`/text/prepare` **uma vez, com o texto inteiro**, antes de dividir em frases.
+
+Fatiar antes de limpar seria pior do que parece: um título de Markdown ou uma
+linha de tabela viram fronteira de frase falsa, os trechos saem cortados no lugar
+errado, e o destaque na tela deixa de bater com o que se ouve.
+
+Se o preparo falhar, a leitura segue com o texto original — a API limpa de novo
+na síntese, então o que se perde é o corte bom, não a marcação falada.
+
+**Corrigir o texto** (acentuação, ortografia, pontuação) é outra coisa, feita por
+um modelo, e fica desligada por padrão: custa de 4 a 7 segundos por parágrafo
+antes do primeiro som. Vale para texto mal escrito; é pura espera para texto que
+já está certo, que é a maioria do que se lê. A chave está no painel.
+
+## O vocabulário chegou ao reconhecedor
+
+`vocabulary` e `custom_instructions` eram guardados e nunca enviados — não havia
+onde. Desde a 2.6.0 o `/v1/audio/transcriptions` aceita `prompt`, e é ele que
+ensina nome próprio ao modelo: sem isso "Traefik" volta como "trafic" toda vez.
+
+Os termos vão primeiro e as instruções depois, porque o campo tem teto de tamanho
+no servidor e o que for cortado deve ser a prosa, que ajuda menos que a lista de
+palavras. Só vale para os modelos remotos: o Vosk local não tem onde encaixar
+contexto.
+
 ## Como o realce sabe onde a voz está
 
 Nenhuma das vozes devolve marcação de tempo por palavra, então a posição é
@@ -383,18 +416,9 @@ promete está ligado:
 | | |
 |---|---|
 | Instalador e partida no boot | só o atalho de desenvolvimento; não há MSI nem entrada de inicialização |
-| `vocabulary` e `custom_instructions` | guardados e **nunca enviados** — ver abaixo |
 | Destaque fora do navegador | só a extensão acompanha o texto na tela; em outros apps abre-se a janela de leitura |
 
 Nada disso quebra o uso: ditado e leitura funcionam ponta a ponta.
-
-**Sobre o vocabulário e as instruções.** Eles só teriam efeito como *prompt* da
-transcrição — é assim que se ensina um nome próprio ao Whisper. O
-`/v1/audio/transcriptions` da speech-api hoje aceita `file`, `model` e
-`response_format`, e ignora qualquer outro campo: mandar daqui não faria nada.
-Ligar isso é uma mudança no servidor, não no app, e por isso os dois campos
-continuam fora do painel de preferências — uma opção que não faz nada é pior que
-uma opção que não existe.
 
 **Duas preferências foram removidas**, pelo mesmo critério. `mute_while_recording`
 nunca teve uma linha de código atrás dela. `context_aware_paste` ligava e
