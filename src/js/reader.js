@@ -87,6 +87,10 @@ const ICON_PAUSE = '<rect x="6" y="4.5" width="3" height="11" rx="1"/><rect x="1
 /** Um trecho: a frase, seus elementos de palavra, o áudio e a duração real. */
 let segments = [];
 let currentIndex = -1;
+/* Um clique pode apontar para áudio que ainda está sendo gerado. Guardamos a
+ * intenção em vez de ignorá-la: a leitura pausa e troca para o trecho quando o
+ * áudio chegar, sem exigir que a pessoa clique de novo. */
+let pendingSegmentSeek = null;
 let readingState = "idle";
 /* O usuário rolou manualmente: paramos de arrastar a rolagem atrás dele até a
    próxima frase, senão brigamos com quem quer reler algo acima. */
@@ -193,6 +197,7 @@ function renderPlan(texts) {
   readerView.appendChild(awaiting);
 
   currentIndex = -1;
+  pendingSegmentSeek = null;
   userScrolled = false;
   emptyView.hidden = true;
   readerView.hidden = false;
@@ -363,7 +368,7 @@ function updateWordHighlight() {
 
 /* ---------------------------------------------------------- reprodução */
 
-function loadSegment(index, offset = 0) {
+function loadSegment(index, offset = 0, shouldPlay = readingState !== "paused") {
   const segment = segments[index];
   if (!segment?.audio) return false;
 
@@ -373,7 +378,7 @@ function loadSegment(index, offset = 0) {
 
   const start = () => {
     player.currentTime = offset;
-    if (readingState !== "paused") {
+    if (shouldPlay) {
       player.play().catch((error) => console.error("[vox] falha ao tocar", error));
     }
   };
@@ -382,6 +387,21 @@ function loadSegment(index, offset = 0) {
   else player.addEventListener("loadedmetadata", start, { once: true });
 
   return true;
+}
+
+function seekToSegment(index) {
+  if (!Number.isInteger(index) || !segments[index]) return;
+
+  const shouldPlay = readingState !== "paused";
+  if (!player.paused) player.pause();
+
+  if (segments[index].audio) {
+    pendingSegmentSeek = null;
+    loadSegment(index, 0, shouldPlay);
+    return;
+  }
+
+  pendingSegmentSeek = { index, shouldPlay };
 }
 
 function playNextIfReady() {
@@ -484,7 +504,11 @@ listen("vox://reading-chunk", (event) => {
     segment.duration = probe.duration || 0;
     updateTimeline();
     // Primeiro trecho pronto, ou o que estávamos esperando: começa a tocar.
-    if (currentIndex < 0 && index === 0) loadSegment(0);
+    if (pendingSegmentSeek?.index === index) {
+      const pending = pendingSegmentSeek;
+      pendingSegmentSeek = null;
+      loadSegment(index, 0, pending.shouldPlay);
+    } else if (currentIndex < 0 && index === 0) loadSegment(0);
     else if (player.ended && index === currentIndex + 1) loadSegment(index);
   }, { once: true });
 });
@@ -513,6 +537,7 @@ listen("vox://reading", (event) => {
     emptyView.hidden = false;
     segments = [];
     currentIndex = -1;
+    pendingSegmentSeek = null;
   }
 });
 
@@ -608,7 +633,7 @@ readerView.addEventListener("click", (event) => {
   const sentence = event.target.closest(".sentence");
   if (!sentence) return;
   const index = Number(sentence.dataset.index);
-  if (segments[index]?.audio) loadSegment(index);
+  seekToSegment(index);
 });
 
 /* Rolagem manual suspende o acompanhamento automático por alguns segundos. */
@@ -640,9 +665,7 @@ const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 listen("vox://player-command", (event) => {
   const { action, seconds, index } = event.payload ?? {};
   if (action === "seek") seekBy(seconds ?? 0);
-  else if (action === "seek-index" && Number.isInteger(index) && segments[index]?.audio) {
-    loadSegment(index);
-  }
+  else if (action === "seek-index") seekToSegment(index);
   else if (action === "toggle") playPauseButton.click();
   else if (action === "cycle-speed") {
     const select = document.getElementById("speed");

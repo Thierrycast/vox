@@ -536,8 +536,10 @@ body {
 .cap-sentence {
   color: rgba(255, 255, 255, .30);
   transition: color .55s var(--easing-soft);
+  cursor: pointer;
 }
 .cap-sentence[data-current="true"] { color: rgba(255, 255, 255, .94); }
+.cap-sentence:focus-visible { outline: 2px solid var(--accent, #966aff); outline-offset: 3px; border-radius: 3px; }
 
 /* As palavras ficam acima do realce e só mudam de cor; quem pinta o fundo é o
    retângulo que desliza por baixo. */

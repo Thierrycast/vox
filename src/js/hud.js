@@ -359,6 +359,9 @@ function buildCaptionSentence(text, index) {
   const sentence = document.createElement("span");
   sentence.className = "cap-sentence";
   sentence.dataset.index = String(index);
+  sentence.setAttribute("role", "button");
+  sentence.tabIndex = 0;
+  sentence.setAttribute("aria-label", `Ouvir a partir do trecho ${index + 1}`);
 
   const totalChars = text.length || 1;
   const pieces = text.split(/(\s+)/);
@@ -853,6 +856,13 @@ player.addEventListener("click", (event) => {
   if (event.target.closest("#playerTime")) {
     invoke("show_reader").catch(() => {});
   }
+});
+
+player.addEventListener("keydown", (event) => {
+  const caption = event.target.closest(".cap-sentence");
+  if (!caption || (event.key !== "Enter" && event.key !== " ")) return;
+  event.preventDefault();
+  emit("vox://player-command", { action: "seek-index", index: Number(caption.dataset.index) });
 });
 
 // Um widget sem moldura não é uma aba comum: duplo clique na área arrastável
