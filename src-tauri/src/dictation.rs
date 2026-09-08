@@ -520,6 +520,7 @@ pub fn shape_hud(app: &AppHandle, shape: HudShape) {
         .outer_position()
         .ok()
         .map(|position| position.to_logical::<f64>(scale));
+    let saved_position = app.state::<crate::AppState>().settings.lock().hud_position;
 
     // A primeira forma usa a posição padrão. Depois disso, a posição atual é
     // autoridade: o HUD é arrastável e abrir/fechar a legenda não pode levar a
@@ -531,6 +532,10 @@ pub fn shape_hud(app: &AppHandle, shape: HudShape) {
             (position.x + size.width - width, position.y)
         }
         (true, _, Some(position)) => (position.x, position.y),
+        (_, _, _) if saved_position.is_some() => {
+            let position = saved_position.expect("posição checada acima");
+            (position.x, position.y)
+        }
         _ => match shape {
             HudShape::Bar => ((screen.width - width) / 2.0, screen.height - height - 96.0),
             HudShape::Column | HudShape::ColumnCaptions => {

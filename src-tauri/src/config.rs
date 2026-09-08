@@ -12,6 +12,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::Credentials;
 
+/// Posição lógica escolhida para a janela flutuante.
+///
+/// Pode conter coordenadas negativas quando o monitor fica à esquerda do
+/// principal, portanto não deve ser limitada a zero.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct WindowPosition {
+    pub x: f64,
+    pub y: f64,
+}
+
 const ENV_BASE_URL: &str = "VOX_API_URL";
 const ENV_USER: &str = "VOX_API_USER";
 const ENV_PASSWORD: &str = "VOX_API_PASSWORD";
@@ -120,6 +130,9 @@ pub struct Settings {
     pub shortcut_dictate: String,
     pub shortcut_read: String,
 
+    /// Último local para onde a pessoa arrastou o widget.
+    pub hud_position: Option<WindowPosition>,
+
     // --- geral ---
     pub sounds_enabled: bool,
     /// Volume dos avisos sonoros, de 0 a 1.
@@ -169,6 +182,7 @@ impl Default for Settings {
             // Chrome, e o navegador ganha a disputa. `Ctrl+Alt+L` de "Ler" é
             // raro em atalho de aplicativo e não colide com nada do Windows.
             shortcut_read: "Ctrl+Alt+L".into(),
+            hud_position: None,
 
             sounds_enabled: true,
             sounds_volume: 1.0,
@@ -219,6 +233,11 @@ impl Settings {
             self.sounds_volume = 1.0;
         }
         self.sounds_volume = self.sounds_volume.clamp(0.0, 1.0);
+        if self.hud_position.is_some_and(|position| {
+            !position.x.is_finite() || !position.y.is_finite()
+        }) {
+            self.hud_position = None;
+        }
 
         self.vocabulary.retain(|term| {
             let trimmed = term.trim();
@@ -407,6 +426,16 @@ mod tests {
         let mut settings = Settings { submit_keyword: "   ".into(), ..Default::default() };
         settings.sanitize();
         assert_eq!(settings.submit_keyword, "manda ver");
+    }
+
+    #[test]
+    fn descarta_posicao_de_widget_invalida() {
+        let mut settings = Settings {
+            hud_position: Some(WindowPosition { x: f64::NAN, y: 24.0 }),
+            ..Default::default()
+        };
+        settings.sanitize();
+        assert_eq!(settings.hud_position, None);
     }
 }
 

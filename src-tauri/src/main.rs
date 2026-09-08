@@ -775,6 +775,23 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "hud" {
+                if let tauri::WindowEvent::Moved(position) = event {
+                    let scale = window.scale_factor().unwrap_or(1.0);
+                    let position = position.to_logical::<f64>(scale);
+                    let app = window.app_handle();
+                    let app_state = app.state::<AppState>();
+                    let mut settings = app_state.settings.lock();
+                    let saved = config::WindowPosition { x: position.x, y: position.y };
+                    if settings.hud_position != Some(saved) {
+                        settings.hud_position = Some(saved);
+                        if let Err(error) = settings.save() {
+                            tracing::warn!(?error, "não deu para guardar a posição do widget");
+                        }
+                    }
+                }
+                return;
+            }
             // Fechar as preferências é só sair delas: destruir a webview
             // custaria recarregar a página inteira na próxima abertura, e o
             // painel é justamente o que se abre para mexer em duas coisas e
