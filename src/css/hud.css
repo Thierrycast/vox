@@ -55,8 +55,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Folga para a sombra não sair cortada — a janela é transparente. */
-  padding: 10px;
+  /* A sombra chega a 26px para fora (mais 8px de deslocamento). A folga tem
+     que superar isso nos quatro lados; 10px deixava um corte reto no topo e
+     embaixo da pílula. A geometria da janela em `HudShape::size` acompanha. */
+  padding: 36px;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 13px;
   color: var(--hud-fg);
@@ -486,7 +488,13 @@ body {
      pequeno demais para bancar esse movimento. */
   scrollbar-width: none;
 }
-.captions-text::-webkit-scrollbar { display: none; }
+.captions-text::-webkit-scrollbar { width: 5px; }
+.captions-text::-webkit-scrollbar-track { background: transparent; }
+.captions-text::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .20);
+}
+.captions-text::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .36); }
 
 /* O realce é um retângulo só, que anda por baixo do texto.
  *

@@ -16,6 +16,8 @@
         "width": 260,
         "height": 76,
         "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
         "decorations": false,
         "transparent": true,
         "shadow": false,

@@ -460,21 +460,21 @@ impl HudShape {
         match self {
             // Folga em volta do desenho: a janela é transparente e a sombra
             // precisa de espaço, senão sai cortada na borda.
-            HudShape::Bar => (360.0, 84.0),
+            HudShape::Bar => (360.0, 136.0),
             // A altura é a mesma das duas formas da leitura de propósito: abrir
             // a legenda muda só a largura, e a pílula não pula na vertical
             // debaixo do cursor que acabou de clicar.
-            HudShape::Column => (84.0, 268.0),
+            HudShape::Column => (136.0, 320.0),
             // A janela cresce junto com o card, e não antes dele: uma janela
             // transparente maior que o desenho continua capturando o clique na
             // área vazia, e o usuário fica sem entender por que a página atrás
             // parou de responder num retângulo invisível.
-            HudShape::ColumnCaptions => (452.0, 268.0),
+            HudShape::ColumnCaptions => (504.0, 320.0),
         }
     }
 }
 
-/// Redimensiona e reposiciona a janela flutuante.
+/// Redimensiona a janela flutuante sem desfazer o lugar que a pessoa escolheu.
 ///
 /// A barra do ditado fica no centro inferior, com folga para não encostar na
 /// barra de tarefas: durante o ditado o olho não está no texto, e o centro é
@@ -512,14 +512,31 @@ pub fn shape_hud(app: &AppHandle, shape: HudShape) {
     let scale = monitor.scale_factor();
     let screen = monitor.size().to_logical::<f64>(scale);
 
-    let (x, y) = match shape {
-        HudShape::Bar => ((screen.width - width) / 2.0, screen.height - height - 96.0),
-        // As duas formas da leitura ancoram na mesma borda direita: ao abrir a
-        // legenda o card cresce para a esquerda e os controles não saem do
-        // lugar sob o cursor.
-        HudShape::Column | HudShape::ColumnCaptions => {
-            (screen.width - width - 12.0, (screen.height - height) / 2.0)
+    let current_size = window
+        .outer_size()
+        .ok()
+        .map(|size| size.to_logical::<f64>(scale));
+    let current_position = window
+        .outer_position()
+        .ok()
+        .map(|position| position.to_logical::<f64>(scale));
+
+    // A primeira forma usa a posição padrão. Depois disso, a posição atual é
+    // autoridade: o HUD é arrastável e abrir/fechar a legenda não pode levar a
+    // pílula de volta para o ponto de spawn. Na expansão, preservamos a borda
+    // direita para os controles ficarem sob o cursor; nas demais mudanças,
+    // preservamos o canto superior esquerdo.
+    let (x, y) = match (window.is_visible().unwrap_or(false), current_size, current_position) {
+        (true, Some(size), Some(position)) if (width - size.width).abs() > f64::EPSILON => {
+            (position.x + size.width - width, position.y)
         }
+        (true, _, Some(position)) => (position.x, position.y),
+        _ => match shape {
+            HudShape::Bar => ((screen.width - width) / 2.0, screen.height - height - 96.0),
+            HudShape::Column | HudShape::ColumnCaptions => {
+                (screen.width - width - 12.0, (screen.height - height) / 2.0)
+            }
+        },
     };
     tracing::debug!(
         ?shape, largura = width, altura = height,
@@ -538,11 +555,7 @@ pub fn shape_hud(app: &AppHandle, shape: HudShape) {
      * A regra é sempre a mesma: primeiro a operação que não deixa a janela
      * ocupando espaço que ela não deveria. Encolhendo, mover; crescendo,
      * redimensionar. */
-    let atual = window
-        .outer_size()
-        .ok()
-        .map(|tamanho| tamanho.to_logical::<f64>(scale).width)
-        .unwrap_or(width);
+    let atual = current_size.map(|size| size.width).unwrap_or(width);
 
     if width <= atual {
         let _ = window.set_position(tauri::LogicalPosition::new(x, y));

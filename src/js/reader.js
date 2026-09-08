@@ -638,8 +638,11 @@ document.addEventListener("keydown", (event) => {
 const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 
 listen("vox://player-command", (event) => {
-  const { action, seconds } = event.payload ?? {};
+  const { action, seconds, index } = event.payload ?? {};
   if (action === "seek") seekBy(seconds ?? 0);
+  else if (action === "seek-index" && Number.isInteger(index) && segments[index]?.audio) {
+    loadSegment(index);
+  }
   else if (action === "toggle") playPauseButton.click();
   else if (action === "cycle-speed") {
     const select = document.getElementById("speed");

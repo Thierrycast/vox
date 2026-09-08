@@ -569,7 +569,12 @@ function keepWordVisible(word, forcar = false) {
 function suspendCaptionAutoScroll() {
   captionUserScrolled = true;
   clearTimeout(captionScrollHandle);
-  captionScrollHandle = setTimeout(() => { captionUserScrolled = false; }, 6000);
+  captionScrollHandle = setTimeout(() => {
+    captionUserScrolled = false;
+    // Só recupera o foco enquanto há reprodução. Em pausa, a pessoa está
+    // navegando o texto deliberadamente e o scroll deve ficar onde ela deixou.
+    if (ultimoEstadoDoPlayer === "playing") resumeCaptionAutoScroll();
+  }, 2500);
 }
 
 function resumeCaptionAutoScroll() {
@@ -815,6 +820,11 @@ player.addEventListener("wheel", (event) => {
 }, { passive: true });
 
 player.addEventListener("click", (event) => {
+  const caption = event.target.closest(".cap-sentence");
+  if (caption) {
+    emit("vox://player-command", { action: "seek-index", index: Number(caption.dataset.index) });
+    return;
+  }
   const jump = event.target.closest("[data-jump]");
   if (jump) {
     emit("vox://player-command", { action: "seek", seconds: Number(jump.dataset.jump) });
@@ -844,6 +854,10 @@ player.addEventListener("click", (event) => {
     invoke("show_reader").catch(() => {});
   }
 });
+
+// Um widget sem moldura não é uma aba comum: duplo clique na área arrastável
+// nunca pode virar maximizar/snap do Windows.
+window.addEventListener("dblclick", (event) => { event.preventDefault(); });
 
 /* Primeiro desenho, antes de qualquer resposta do backend. Se o `invoke`
    falhar, o HUD ainda mostra a onda em vez de um retângulo vazio. */
