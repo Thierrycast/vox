@@ -390,6 +390,38 @@ a onda parecer atrasada em relação à voz; descer devagar é o que dá o decai
 natural. A transição da barra cobre o intervalo inteiro do poll (130 ms), então o
 movimento nunca para.
 
+## O catálogo de comandos
+
+Oito comandos globais, declarados uma vez em `src-tauri/src/commands.rs`. O
+registro, a preferência e a linha no menu da bandeja derivam dessa tabela — antes
+cada atalho custava as três coisas escritas à mão, e o oitavo seria o que alguém
+esqueceria em uma delas.
+
+| Comando | Padrão | |
+|---|---|---|
+| Ditar | `Ctrl+Shift+D` | uma vez grava, de novo entrega |
+| Cancelar o ditado | `Ctrl+Shift+X` | descarta sem transcrever |
+| Ler a seleção | `Ctrl+Alt+L` | e pausa/retoma durante a leitura |
+| Pausar e retomar | `Ctrl+Alt+P` | nunca começa uma leitura nova |
+| Parar a leitura | `Ctrl+Alt+K` | |
+| Legenda guiada | `Ctrl+Alt+G` | abre e fecha o texto na pílula |
+| Mostrar o widget | `Ctrl+Alt+V` | sem começar nada |
+| Preferências | `Ctrl+Alt+O` | |
+
+Duas famílias, separadas pelo que a mão está fazendo: `Ctrl+Shift` para o ditado,
+que se usa enquanto se escreve, e `Ctrl+Alt` para a leitura e a janela, que se
+usam enquanto se lê.
+
+**As letras não são estéticas.** No teclado ABNT2, `AltGr` é `Ctrl+Alt`: um
+atalho global em `Ctrl+Alt+Q` rouba o `/` de quem digita, e `Ctrl+Alt+E` rouba o
+`€`. As letras do catálogo não produzem caractere nenhum com AltGr, e um teste
+falha se alguém escolher uma que produz.
+
+Atalho global é recurso disputado e quem registra primeiro leva — o Vox sobe
+depois do navegador. Uma combinação tomada falha em silêncio, então o que não
+registrar aparece marcado no painel, ao lado do campo que a causou, e no menu da
+bandeja. Campo vazio é escolha: significa "sem atalho".
+
 ## Formas de acionar
 
 | Caminho | Onde funciona |

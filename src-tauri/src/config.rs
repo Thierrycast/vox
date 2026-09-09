@@ -5,6 +5,7 @@
 //! diretório de config do usuário, que pode ir para o disco à vontade porque não
 //! guarda segredo nenhum.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -151,9 +152,21 @@ pub struct Settings {
     /// Configuráveis porque atalho global é recurso disputado e o que está
     /// livre varia por máquina: `Ctrl+Shift+S` parecia seguro até descobrirmos
     /// que abre o DevTools no Chrome.
-    pub shortcut_dictate: String,
-    pub shortcut_read: String,
-    pub shortcut_show_widget: String,
+    /// Combinação de cada comando, pela chave do catálogo em `commands.rs`.
+    ///
+    /// Um mapa, e não um campo por comando: com oito comandos, um campo cada
+    /// significaria oito lugares para lembrar de mexer a cada comando novo — e
+    /// o oitavo é o que se esquece.
+    pub shortcuts: BTreeMap<String, String>,
+
+    /// Campos de antes do catálogo. Ficam para migrar a escolha de quem já
+    /// tinha personalizado, e somem do arquivo assim que ela entra no mapa.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shortcut_dictate: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shortcut_read: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shortcut_show_widget: Option<String>,
 
     /// Último local para onde a pessoa arrastou o widget.
     pub hud_position: Option<WindowPosition>,
@@ -213,12 +226,11 @@ impl Default for Settings {
             speed: 1.0,
             prebuffer_ratio: 0.10,
 
-            shortcut_dictate: "Ctrl+Shift+D".into(),
-            // `Ctrl+Shift+S` era o padrão e foi trocado: abre o DevTools no
-            // Chrome, e o navegador ganha a disputa. `Ctrl+Alt+L` de "Ler" é
-            // raro em atalho de aplicativo e não colide com nada do Windows.
-            shortcut_read: "Ctrl+Alt+L".into(),
-            shortcut_show_widget: "Ctrl+Alt+V".into(),
+            shortcuts: BTreeMap::new(),
+            shortcut_dictate: None,
+            shortcut_read: None,
+            shortcut_show_widget: None,
+
             hud_position: None,
 
             sounds_enabled: true,
@@ -274,6 +286,26 @@ impl Settings {
         self.stt_rewrite_intensity = self.stt_rewrite_intensity.clamp(1, 3);
         if self.stt_rewrite_preset.trim().is_empty() {
             self.stt_rewrite_preset = "fala-limpa".into();
+        }
+
+        // Cada comando precisa de uma combinação, e a do arquivo tem prioridade
+        // sobre a padrão. O campo antigo entra aqui uma única vez: depois disto
+        // ele some do JSON, porque só é serializado quando existe.
+        for comando in crate::commands::Command::ALL {
+            let legado = match comando {
+                crate::commands::Command::Dictate => self.shortcut_dictate.take(),
+                crate::commands::Command::ReadSelection => self.shortcut_read.take(),
+                crate::commands::Command::ShowWidget => self.shortcut_show_widget.take(),
+                _ => None,
+            };
+
+            let entrada = self.shortcuts.entry(comando.id().to_string()).or_insert_with(|| {
+                legado.unwrap_or_else(|| comando.default_binding().to_string())
+            });
+
+            // Vazio significa "sem atalho" de propósito — quem não quer um
+            // comando ocupando uma combinação global apaga o campo no painel.
+            *entrada = entrada.trim().to_string();
         }
 
         // Cor inválida vira a padrão em vez de virar CSS quebrado: o front

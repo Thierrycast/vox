@@ -748,6 +748,14 @@ listen("vox://player-progress", (event) => {
   }
 });
 
+/* O atalho de legenda vem pelo backend e cai na mesma função do botão: assim a
+   animação, a preferência e o tamanho da janela seguem um caminho só. */
+listen("vox://toggle-captions", () => {
+  // Só faz sentido com o player na tela; fora da leitura não há o que legendar.
+  if (player.hidden) return;
+  setCaptions(!captionsEnabled);
+});
+
 /* O plano chega logo depois do estado "gerando": é o texto inteiro, antes de
    existir áudio de qualquer trecho. A legenda desenha tudo de uma vez e depois
    só move o destaque. */

@@ -78,9 +78,6 @@ const campos = {
   normalizeBeforeReading: "normalize_before_reading",
   openReaderOnRead: "open_reader_on_read",
   customInstructions: "custom_instructions",
-  shortcutDictate: "shortcut_dictate",
-  shortcutRead: "shortcut_read",
-  shortcutShowWidget: "shortcut_show_widget",
   bridgeEnabled: "bridge_enabled",
   bridgePort: "bridge_port",
 };
@@ -333,6 +330,65 @@ elemento("vocabularyEntrada").addEventListener("keydown", (event) => {
   }
 });
 
+/* --------------------------------------------------------------- atalhos */
+
+/* A lista é montada com o catálogo do backend, e não com uma cópia daqui: um
+   comando novo aparece nesta tela sem uma versão nova dela, e a falha de
+   registro chega junto do campo que a causou. */
+let atalhos = {};
+
+async function montarAtalhos() {
+  const caixa = elemento("listaAtalhos");
+  caixa.innerHTML = "";
+
+  let catalogo = [];
+  try {
+    catalogo = await invoke("command_catalog");
+  } catch {
+    caixa.textContent = "Não consegui ler o catálogo de comandos.";
+    return;
+  }
+
+  atalhos = {};
+
+  for (const comando of catalogo) {
+    atalhos[comando.id] = comando.binding;
+
+    const linha = document.createElement("div");
+    linha.className = "linha";
+
+    const rotulo = document.createElement("span");
+    rotulo.className = "rotulo";
+    const titulo = document.createElement("span");
+    titulo.textContent = comando.label;
+    const dica = document.createElement("small");
+    // A falha substitui a dica: quando o comando não responde, saber por que
+    // importa mais do que saber o que ele faria.
+    dica.textContent = comando.failure
+      ? `Não registrou: ${comando.failure}. Outro programa provavelmente tem esta combinação.`
+      : comando.hint;
+    if (comando.failure) dica.style.color = "var(--amarelo)";
+    rotulo.append(titulo, dica);
+
+    const controle = document.createElement("div");
+    controle.className = "controle";
+    const campo = document.createElement("input");
+    campo.type = "text";
+    campo.spellcheck = false;
+    campo.value = comando.binding;
+    campo.placeholder = comando.default_binding;
+    campo.style.width = "180px";
+    campo.addEventListener("input", () => {
+      atalhos[comando.id] = campo.value;
+      agendarGravacao();
+    });
+    controle.appendChild(campo);
+
+    linha.append(rotulo, controle);
+    caixa.appendChild(linha);
+  }
+}
+
 /* ------------------------------------------------------------ ajuste por IA */
 
 function desenharIntensidade(valor) {
@@ -499,6 +555,7 @@ function coletar() {
   settings.stt_rewrite_model = modelo === "" ? null : modelo;
 
   settings.vocabulary = [...vocabulario];
+  settings.shortcuts = { ...settings.shortcuts, ...atalhos };
   settings.stt_rewrite_preset = presetEscolhido();
   settings.stt_rewrite_intensity = intensidadeEscolhida();
   settings.theme_accent = corEscolhida();
@@ -669,6 +726,7 @@ invoke("get_settings")
     await preencherMicrofones(settings.input_device);
     await preencherVozes(settings.voice);
     await carregarPresets(settings.stt_rewrite_preset);
+    await montarAtalhos();
     desenhar(settings);
 
     invoke("api_base_url").then((url) => { elemento("sobreUrl").textContent = url; }).catch(() => {});

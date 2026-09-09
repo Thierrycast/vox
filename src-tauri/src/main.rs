@@ -4,6 +4,7 @@
 mod api;
 mod audio;
 mod bridge;
+mod commands;
 mod config;
 mod dictation;
 mod paste;
@@ -15,7 +16,7 @@ mod tray;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
@@ -33,6 +34,8 @@ pub struct AppState {
     sounds: Arc<SoundBank>,
     /// Onde a leitura está agora, para a extensão de navegador acompanhar.
     bridge: Arc<bridge::BridgeState>,
+    /// O que aconteceu ao registrar os atalhos, para o painel poder contar.
+    shortcut_report: Mutex<tray::ShortcutReport>,
 }
 
 // ---------------------------------------------------------------- comandos
@@ -167,6 +170,38 @@ async fn rewrite_preview(
 #[tauri::command]
 async fn rewrite_presets(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     state.api.rewrite_presets().await.map_err(|err| err.to_string())
+}
+
+/// O catálogo de comandos com a combinação de cada um e o que falhou.
+///
+/// O painel monta a lista com isto em vez de guardar uma cópia: comando novo
+/// aparece lá sem uma versão nova da interface, e a falha de registro aparece
+/// junto do campo que a causou.
+#[tauri::command]
+fn command_catalog(state: State<'_, AppState>) -> Vec<serde_json::Value> {
+    let escolhas = state.settings.lock().shortcuts.clone();
+    let falhas = state.shortcut_report.lock().clone();
+
+    commands::Command::ALL
+        .iter()
+        .map(|comando| {
+            let falha = falhas
+                .commands
+                .iter()
+                .find(|info| info.id == comando.id())
+                .and_then(|info| info.failure.clone());
+
+            serde_json::json!({
+                "id": comando.id(),
+                "label": comando.label(),
+                "hint": comando.hint(),
+                "default_binding": comando.default_binding(),
+                "binding": escolhas.get(comando.id()).cloned()
+                    .unwrap_or_else(|| comando.default_binding().to_string()),
+                "failure": falha,
+            })
+        })
+        .collect()
 }
 
 /// Endereço da API, para o painel dizer para onde o áudio vai.
@@ -379,81 +414,128 @@ async fn read_text(
 ///
 /// Aqui a falha vira uma linha no menu da bandeja, e o que funcionou continua
 /// funcionando: perder a leitura não é motivo para perder o ditado também.
+/// Registra tudo o que o catálogo declara, e devolve o que falhou.
+///
+/// Cada comando é registrado por conta própria: perder a leitura porque o
+/// navegador tomou uma combinação não é motivo para perder o ditado junto. O que
+/// falhar vira uma linha no menu da bandeja — atalho global que não registra é
+/// silencioso por natureza, e sem isso a tecla simplesmente não faz nada e a
+/// pessoa conclui que o app está quebrado.
 fn register_shortcuts(app: &AppHandle) -> tray::ShortcutReport {
-    let mut report = tray::ShortcutReport::default();
-
-    let (texto_ditado, texto_leitura, texto_widget) = {
+    let escolhas = {
         let state = app.state::<AppState>();
         let settings = state.settings.lock();
-        (
-            settings.shortcut_dictate.clone(),
-            settings.shortcut_read.clone(),
-            settings.shortcut_show_widget.clone(),
-        )
+        settings.shortcuts.clone()
     };
 
-    let dictate = match parse_shortcut(&texto_ditado) {
-        Some(atalho) => atalho,
-        None => {
-            report.dictate = Some(format!("combinação inválida: {texto_ditado}"));
-            Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyD)
-        }
-    };
-    let read = match parse_shortcut(&texto_leitura) {
-        Some(atalho) => atalho,
-        None => {
-            report.read = Some(format!("combinação inválida: {texto_leitura}"));
-            Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyL)
-        }
-    };
-    let show_widget = match parse_shortcut(&texto_widget) {
-        Some(shortcut) => shortcut,
-        None => {
-            report.widget = Some(format!("combinação inválida: {texto_widget}"));
-            Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyV)
-        }
-    };
+    let mut report = tray::ShortcutReport::default();
+    let mut registradas: Vec<(String, &'static str)> = Vec::new();
 
-    report.dictate_label = texto_ditado;
-    report.read_label = texto_leitura;
-    report.widget_label = texto_widget;
+    for comando in commands::Command::ALL {
+        let texto = escolhas
+            .get(comando.id())
+            .cloned()
+            .unwrap_or_else(|| comando.default_binding().to_string());
 
-    let handle = app.clone();
-    if let Err(err) = app.global_shortcut().on_shortcut(dictate, move |_app, _sc, event| {
-        if event.state() != ShortcutState::Pressed {
-            return;
-        }
-        let handle = handle.clone();
-        tauri::async_runtime::spawn(async move { toggle_dictation(handle).await });
-    }) {
-        tracing::error!(?err, "Ctrl+Shift+D indisponível");
-        report.dictate = Some(motivo_curto(&err));
-    }
+        let mut info = commands::CommandInfo {
+            id: comando.id(),
+            label: comando.label(),
+            hint: comando.hint(),
+            default_binding: comando.default_binding(),
+            binding: texto.clone(),
+            failure: None,
+        };
 
-    let handle = app.clone();
-    if let Err(err) = app.global_shortcut().on_shortcut(read, move |_app, _sc, event| {
-        if event.state() != ShortcutState::Pressed {
-            return;
+        // Campo vazio é escolha, não erro: quem não quer o comando ocupando uma
+        // combinação global do sistema apaga o campo no painel.
+        if texto.trim().is_empty() {
+            report.commands.push(info);
+            continue;
         }
-        let handle = handle.clone();
-        tauri::async_runtime::spawn(async move { toggle_reading_shortcut(handle).await });
-    }) {
-        tracing::error!(?err, "Ctrl+Shift+S indisponível");
-        report.read = Some(motivo_curto(&err));
-    }
 
-    let handle = app.clone();
-    if let Err(err) = app.global_shortcut().on_shortcut(show_widget, move |_app, _sc, event| {
-        if event.state() != ShortcutState::Pressed {
-            return;
+        // Duas vezes a mesma combinação: o segundo registro falharia com um erro
+        // do sistema que não explica nada. Dizer qual comando já a tem explica.
+        let normalizada = texto.trim().to_lowercase();
+        if let Some((_, dono)) = registradas.iter().find(|(usada, _)| *usada == normalizada) {
+            info.failure = Some(format!("a mesma combinação de \"{dono}\""));
+            report.commands.push(info);
+            continue;
         }
-        dictation::show_idle_hud(&handle);
-    }) {
-        tracing::error!(?err, "Ctrl+Alt+V indisponível");
-        report.widget = Some(motivo_curto(&err));
+
+        let Some(atalho) = parse_shortcut(&texto) else {
+            info.failure = Some(format!("combinação inválida: {texto}"));
+            report.commands.push(info);
+            continue;
+        };
+
+        let handle = app.clone();
+        let resultado = app.global_shortcut().on_shortcut(atalho, move |_app, _sc, evento| {
+            if evento.state() != ShortcutState::Pressed {
+                return;
+            }
+            executar(handle.clone(), comando);
+        });
+
+        if let Err(err) = resultado {
+            tracing::error!(?err, comando = comando.id(), atalho = %texto, "atalho indisponível");
+            info.failure = Some(motivo_curto(&err));
+        } else {
+            registradas.push((normalizada, comando.label()));
+        }
+
+        report.commands.push(info);
     }
 
     report
+}
+
+/// O que cada comando faz.
+///
+/// Fica separado do registro porque a ação é do app e o registro é do sistema:
+/// juntos, mexer numa das duas coisas obrigava a reler a outra.
+fn executar(app: AppHandle, comando: commands::Command) {
+    use commands::Command;
+
+    match comando {
+        Command::Dictate => {
+            tauri::async_runtime::spawn(async move { toggle_dictation(app).await });
+        }
+        Command::CancelDictation => {
+            let state = app.state::<AppState>();
+            state.dictation.cancel(&app);
+        }
+        Command::ReadSelection => {
+            tauri::async_runtime::spawn(async move { toggle_reading_shortcut(app).await });
+        }
+        Command::TogglePlayback => {
+            // Diferente de `ReadSelection`: aqui nada começa. Quem quer só
+            // pausar não pode correr o risco de iniciar uma leitura nova da
+            // seleção que por acaso estava na tela.
+            let state = app.state::<AppState>();
+            match state.reader.state() {
+                reading::ReadingState::Playing => state.reader.pause(&app),
+                reading::ReadingState::Paused => state.reader.resume(&app),
+                outro => tracing::debug!(estado = ?outro, "nada tocando; pausa ignorada"),
+            }
+        }
+        Command::StopReading => {
+            let state = app.state::<AppState>();
+            state.reader.stop(&app);
+            state.bridge.clear();
+        }
+        Command::ToggleCaptions => {
+            let ligada = {
+                let state = app.state::<AppState>();
+                let atual = state.settings.lock().reading_captions;
+                !atual
+            };
+            // O front é quem anima a abertura; mandar o evento em vez de mexer
+            // na janela daqui mantém a animação e a preferência num caminho só.
+            let _ = app.emit("vox://toggle-captions", serde_json::json!({ "enabled": ligada }));
+        }
+        Command::ShowWidget => dictation::show_idle_hud(&app),
+        Command::OpenSettings => show_settings(&app),
+    }
 }
 
 /// Interpreta `"Ctrl+Shift+D"` e devolve o atalho do Tauri.
@@ -786,6 +868,7 @@ fn main() {
         settings: Mutex::new(settings),
         sounds: sound_bank,
         bridge: Arc::new(bridge::BridgeState::default()),
+        shortcut_report: Mutex::new(tray::ShortcutReport::default()),
         api,
     };
 
@@ -814,6 +897,7 @@ fn main() {
             open_settings,
             rewrite_preview,
             rewrite_presets,
+            command_catalog,
             api_base_url,
             settings_path,
             reset_hud_position,
@@ -856,14 +940,20 @@ fn main() {
             }
 
             let report = register_shortcuts(&handle);
-            if report.has_failure() {
-                tracing::warn!(
-                    ditado = ?report.dictate,
-                    leitura = ?report.read,
-                    "algum atalho global não pôde ser registrado; \
-                     as ações seguem disponíveis pelo menu da bandeja"
-                );
+            for info in &report.commands {
+                if let Some(motivo) = &info.failure {
+                    tracing::warn!(
+                        comando = info.id,
+                        atalho = %info.binding,
+                        motivo,
+                        "atalho global não registrado; a ação segue pelo menu da bandeja"
+                    );
+                }
             }
+
+            // Guardado para o painel mostrar a falha ao lado do campo que a
+            // causou — sem isso, a única pista seria o menu da bandeja.
+            *handle.state::<AppState>().shortcut_report.lock() = report.clone();
 
             // A bandeja é o único ponto de contato visível do app: sem ela não
             // haveria como sair nem como saber que ele está rodando.

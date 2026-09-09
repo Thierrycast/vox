@@ -341,34 +341,25 @@
       <section class="secao" data-secao="atalhos">
         <div class="grupo">
           <h2>Comandos globais</h2>
-          <div class="linha">
-            <span class="rotulo">
-              <span>Ditar</span>
-              <small>Aperta uma vez para gravar, de novo para transcrever e colar.</small>
-            </span>
-            <div class="controle"><input type="text" id="shortcutDictate" spellcheck="false" placeholder="Ctrl+Shift+D"></div>
-          </div>
-          <div class="linha">
-            <span class="rotulo">
-              <span>Ler a seleção</span>
-              <small>Durante a leitura, o mesmo atalho pausa e retoma.</small>
-            </span>
-            <div class="controle"><input type="text" id="shortcutRead" spellcheck="false" placeholder="Ctrl+Alt+L"></div>
-          </div>
-          <div class="linha">
-            <span class="rotulo">
-              <span>Mostrar o widget</span>
-              <small>Traz a pílula à tela sem começar nada.</small>
-            </span>
-            <div class="controle"><input type="text" id="shortcutShowWidget" spellcheck="false" placeholder="Ctrl+Alt+V"></div>
-          </div>
+          <div id="listaAtalhos"></div>
         </div>
 
         <p class="nota">
-          Atalho global é recurso disputado: quem registra primeiro leva, e o Vox
-          sobe depois do navegador. Se uma combinação parar de responder, é sinal de
-          que outro programa a tomou — o menu da bandeja mostra qual falhou ao
-          registrar. Mudanças aqui valem depois de reiniciar o Vox.
+          Duas famílias, separadas pelo que a mão está fazendo:
+          <code>Ctrl+Shift</code> para o ditado, que se usa enquanto se escreve, e
+          <code>Ctrl+Alt</code> para a leitura e a janela, que se usam enquanto se lê.
+        </p>
+        <p class="nota">
+          <strong>No teclado ABNT2, <code>AltGr</code> é <code>Ctrl+Alt</code>.</strong>
+          Um atalho global em <code>Ctrl+Alt+Q</code> rouba o <code>/</code> de quem digita,
+          e <code>Ctrl+Alt+E</code> rouba o <code>€</code>. As letras escolhidas aqui
+          (L, V, P, K, G, O) não produzem caractere nenhum com AltGr — por isso são estas.
+        </p>
+        <p class="nota">
+          Atalho global é recurso disputado e quem registra primeiro leva; o Vox sobe depois
+          do navegador. Uma combinação tomada falha em silêncio, então o que não registrar
+          aparece marcado acima e no menu da bandeja. Campo vazio significa "sem atalho".
+          Mudanças valem depois de reiniciar o Vox.
         </p>
       </section>
 

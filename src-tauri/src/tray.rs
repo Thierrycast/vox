@@ -19,18 +19,13 @@ use crate::AppState;
 /// Estado dos atalhos, para o menu poder relatar falhas.
 #[derive(Debug, Default, Clone)]
 pub struct ShortcutReport {
-    pub dictate: Option<String>,
-    pub read: Option<String>,
-    pub widget: Option<String>,
-    /// A combinação configurada, para o menu mostrar a real e não uma fixa.
-    pub dictate_label: String,
-    pub read_label: String,
-    pub widget_label: String,
+    /// Uma entrada por comando do catálogo, na ordem em que ele os declara.
+    pub commands: Vec<crate::commands::CommandInfo>,
 }
 
 impl ShortcutReport {
     pub fn has_failure(&self) -> bool {
-        self.dictate.is_some() || self.read.is_some() || self.widget.is_some()
+        self.commands.iter().any(|info| info.failure.is_some())
     }
 }
 
@@ -53,39 +48,23 @@ pub fn build(app: &AppHandle, report: &ShortcutReport) -> tauri::Result<()> {
 
     // Os atalhos aparecem como itens desabilitados: servem de lembrete, e é
     // onde uma falha de registro fica visível em vez de silenciosa.
-    let atalho_ditado = MenuItem::with_id(
-        app,
-        "info_ditado",
-        match &report.dictate {
-            None => format!("Ditar   {}", report.dictate_label),
-            Some(erro) => format!("⚠ Ditar — indisponível ({erro})"),
-        },
-        false,
-        None::<&str>,
-    )?;
-    let atalho_leitura = MenuItem::with_id(
-        app,
-        "info_leitura",
-        match &report.read {
-            None => format!("Ler     {}", report.read_label),
-            Some(erro) => format!("⚠ Ler — indisponível ({erro})"),
-        },
-        false,
-        None::<&str>,
-    )?;
-    let atalho_widget = MenuItem::with_id(
-        app,
-        "info_widget",
-        match &report.widget {
-            None => format!("Mostrar widget   {}", report.widget_label),
-            Some(erro) => format!("⚠ Mostrar widget — indisponível ({erro})"),
-        },
-        false,
-        None::<&str>,
-    )?;
+    //
+    // Os itens são criados numa vez e emprestados depois porque o menu do Tauri
+    // guarda referências, não valores.
+    let mut itens = Vec::new();
+    for info in &report.commands {
+        let texto = match (&info.failure, info.binding.trim().is_empty()) {
+            (Some(erro), _) => format!("⚠ {} — {erro}", info.label),
+            (None, true) => format!("{} — sem atalho", info.label),
+            (None, false) => format!("{}   {}", info.label, info.binding),
+        };
+        itens.push(MenuItem::with_id(app, format!("info_{}", info.id), texto, false, None::<&str>)?);
+    }
 
-    let ajuda = Submenu::with_id_and_items(
-        app, "ajuda", "Atalhos", true, &[&atalho_ditado, &atalho_leitura, &atalho_widget])?;
+    let referencias: Vec<&dyn tauri::menu::IsMenuItem<_>> =
+        itens.iter().map(|item| item as &dyn tauri::menu::IsMenuItem<_>).collect();
+
+    let ajuda = Submenu::with_id_and_items(app, "ajuda", "Atalhos", true, &referencias)?;
 
     let menu = Menu::with_items(
         app,
