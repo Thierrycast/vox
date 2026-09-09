@@ -3,255 +3,447 @@
 <head>
 <meta charset="utf-8">
 <link rel="icon" href="favicon.svg">
-<title>Vox — Preferências</title>
+<title>Vox</title>
 <link rel="stylesheet" href="css/settings.css">
 </head>
 <body>
-  <header class="topo">
-    <h1>Preferências</h1>
-    <span class="salvo" id="salvo" hidden>salvo</span>
-  </header>
+<div class="app">
 
-  <main class="painel">
+  <!-- A navegação é fixa: com nove seções, rolar uma coluna única faria a
+       pessoa procurar onde o assunto muda. -->
+  <aside class="nav">
+    <div class="marca"><strong>Vox</strong><span>ditado e leitura</span></div>
 
-    <section class="grupo">
-      <h2>Som</h2>
+    <button class="nav-item" type="button" data-secao="geral" aria-current="true">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.6v2M10 15.4v2M17.4 10h-2M4.6 10h-2M15.2 4.8l-1.4 1.4M6.2 13.8l-1.4 1.4M15.2 15.2l-1.4-1.4M6.2 6.2L4.8 4.8"/></svg>
+      Geral
+    </button>
+    <button class="nav-item" type="button" data-secao="ditado">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="7.5" y="2.5" width="5" height="9" rx="2.5"/><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5"/></svg>
+      Ditado
+    </button>
+    <button class="nav-item" type="button" data-secao="ajuste">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5l1.6 4.3 4.4 1.6-4.4 1.6L10 14.5 8.4 10 4 8.4l4.4-1.6z"/><path d="M15.5 13.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></svg>
+      Ajuste por IA
+    </button>
+    <button class="nav-item" type="button" data-secao="leitura">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5h6a2 2 0 0 1 2 2v9a1.6 1.6 0 0 0-1.6-1.6H3z"/><path d="M17 5.5h-6a2 2 0 0 0-2 2v9a1.6 1.6 0 0 1 1.6-1.6H17z"/></svg>
+      Leitura
+    </button>
+    <button class="nav-item" type="button" data-secao="vocabulario">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3.5 6.5h13M3.5 10h9M3.5 13.5h11"/></svg>
+      Vocabulário
+    </button>
+    <button class="nav-item" type="button" data-secao="atalhos">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="15" height="10" rx="2"/><path d="M6 8.5h.01M9 8.5h.01M12 8.5h.01M6.5 11.5h7"/></svg>
+      Atalhos
+    </button>
+    <button class="nav-item" type="button" data-secao="widget">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="6.5" y="3" width="7" height="14" rx="3.5"/><circle cx="10" cy="7.5" r="1.4"/></svg>
+      Widget
+    </button>
+    <button class="nav-item" type="button" data-secao="extensao">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5h4v2.2a1.8 1.8 0 1 0 3.6 0V8h1.9v4h-2.2a1.8 1.8 0 1 0 0 3.6H13v1.9H7v-2.2a1.8 1.8 0 1 0-3.6 0H3v-4h2.2a1.8 1.8 0 1 0 0-3.6H3V4h5z"/></svg>
+      Extensão
+    </button>
 
-      <label class="linha">
-        <span class="rotulo">Avisos sonoros</span>
-        <input type="checkbox" id="soundsEnabled">
-      </label>
+    <div class="nav-espaco"></div>
 
-      <div class="linha">
-        <span class="rotulo">
-          Volume
-          <small>Vale para os avisos do Vox, não para a voz da leitura.</small>
-        </span>
-        <div class="controle-faixa">
-          <input type="range" id="soundsVolume" min="0" max="1" step="0.05">
-          <output id="soundsVolumeValor">100%</output>
-          <button type="button" class="botao" id="testarSom">Ouvir</button>
-        </div>
+    <button class="nav-item" type="button" data-secao="sobre">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10" cy="10" r="7"/><path d="M10 13.5V9.5M10 6.8v.01"/></svg>
+      Sobre
+    </button>
+
+    <div class="status" id="statusApi" data-estado="checando">
+      <span class="bolinha"></span>
+      <span id="statusTexto">verificando a API…</span>
+    </div>
+  </aside>
+
+  <main class="conteudo">
+    <header class="cabecalho">
+      <div>
+        <h1 id="tituloSecao">Geral</h1>
+        <p id="descricaoSecao">Som, aparência e o comportamento geral do aplicativo.</p>
       </div>
+      <span class="salvo" id="salvo">
+        <svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 10.5l3.5 3.5L15 7"/></svg>
+        salvo
+      </span>
+    </header>
 
-      <label class="linha">
-        <span class="rotulo">
-          Pasta de sons do ditado
-          <small>Os <code>.aif</code> do Raycast, para quem os tem. Vazio usa os sons próprios.</small>
-        </span>
-        <input type="text" id="externalSounds" spellcheck="false" placeholder="(nenhuma)">
-      </label>
-    </section>
+    <div class="rolagem" id="rolagem">
 
-    <section class="grupo">
-      <h2>Ditado</h2>
-
-      <label class="linha">
-        <span class="rotulo">Microfone</span>
-        <select id="inputDevice"></select>
-      </label>
-
-      <label class="linha">
-        <span class="rotulo">
-          Modelo de transcrição
-          <small>O Vosk roda no servidor de casa e não sai da rede; o Whisper é mais preciso.</small>
-        </span>
-        <select id="transcriptionModel">
-          <option value="groq/whisper-large-v3-turbo">Whisper large v3 turbo</option>
-          <option value="vosk">Vosk (local)</option>
-        </select>
-      </label>
-
-      <label class="linha">
-        <span class="rotulo">Ao terminar</span>
-        <select id="outputAction">
-          <option value="paste">Colar no app em foco</option>
-          <option value="clipboard">Só copiar</option>
-        </select>
-      </label>
-
-      <label class="linha">
-        <span class="rotulo">
-          Enviar sozinho
-          <small>Aperta Enter depois de colar.</small>
-        </span>
-        <select id="submitMode">
-          <option value="disabled">Nunca</option>
-          <option value="keyword">Quando eu disser a palavra-chave</option>
-          <option value="auto">Sempre</option>
-        </select>
-      </label>
-
-      <label class="linha" id="linhaPalavra">
-        <span class="rotulo">Palavra-chave</span>
-        <input type="text" id="submitKeyword" spellcheck="false">
-      </label>
-
-      <label class="linha" id="linhaTecla">
-        <span class="rotulo">Tecla de envio</span>
-        <select id="submitKey">
-          <option value="enter">Enter</option>
-          <option value="shift-enter">Shift+Enter</option>
-        </select>
-      </label>
-
-      <label class="linha">
-        <span class="rotulo">
-          Reconhecer enquanto falo
-          <small>Rede de segurança: se a transcrição final falhar, este texto sobrevive.</small>
-        </span>
-        <input type="checkbox" id="liveTranscription">
-      </label>
-
-      <label class="linha">
-        <span class="rotulo">
-          Mostrar o texto ao vivo
-          <small>Numa janelinha no canto superior direito.</small>
-        </span>
-        <input type="checkbox" id="showLiveTranscription">
-      </label>
-    </section>
-
-    <section class="grupo">
-      <h2>Leitura</h2>
-
-      <label class="linha">
-        <span class="rotulo">Voz</span>
-        <select id="voice"></select>
-      </label>
-
-      <div class="linha">
-        <span class="rotulo">Velocidade</span>
-        <div class="controle-faixa">
-          <input type="range" id="speed" min="0.5" max="2" step="0.05">
-          <output id="speedValor">1,00×</output>
+      <!-- ------------------------------------------------------- geral -->
+      <section class="secao" data-secao="geral" data-ativa="true">
+        <div class="grupo">
+          <h2>Aparência</h2>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Cor de destaque</span>
+              <small>Vale para o painel e para o realce da palavra falada na legenda guiada.</small>
+            </span>
+            <div class="controle cores" id="cores"></div>
+          </div>
         </div>
-      </div>
 
-      <div class="linha">
-        <span class="rotulo">
-          Margem antes de começar
-          <small>Folga extra sobre o áudio que o player acumula antes de falar. Mais margem
-                 demora mais para começar e engasga menos no meio.</small>
-        </span>
-        <div class="controle-faixa">
-          <input type="range" id="prebufferRatio" min="0" max="0.5" step="0.05">
-          <output id="prebufferValor">10%</output>
+        <div class="grupo">
+          <h2>Som</h2>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Avisos sonoros</span>
+              <small>Começo e fim do ditado, pausa e erro da leitura.</small>
+            </span>
+            <div class="controle"><input type="checkbox" id="soundsEnabled"></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Volume dos avisos</span>
+              <small>Só dos avisos do Vox — a voz da leitura tem o volume do sistema.</small>
+            </span>
+            <div class="controle">
+              <div class="faixa">
+                <input type="range" id="soundsVolume" min="0" max="1" step="0.05">
+                <output id="soundsVolumeValor">100%</output>
+              </div>
+              <button type="button" class="botao" id="testarSom">Ouvir</button>
+            </div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Pasta de sons do ditado</span>
+              <small>Os <code>.aif</code> do Raycast, para quem os tem. Vazio usa os sons próprios.</small>
+            </span>
+            <div class="controle"><input type="text" id="externalSounds" spellcheck="false" placeholder="(nenhuma)"></div>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <label class="linha">
-        <span class="rotulo">
-          Legenda guiada
-          <small>A pílula cresce e mostra o texto sendo falado. Também dá para ligar no
-                 próprio player, durante a leitura.</small>
-        </span>
-        <input type="checkbox" id="readingCaptions">
-      </label>
-
-      <label class="linha">
-        <span class="rotulo">
-          Corrigir o texto antes de ler
-          <small>Acentuação, ortografia e pontuação, por um modelo. Custa de 4 a 7 segundos
-                 por parágrafo, antes do primeiro som — vale para texto mal escrito e é
-                 pura espera para texto que já está certo.</small>
-        </span>
-        <input type="checkbox" id="normalizeBeforeReading">
-      </label>
-
-      <label class="linha">
-        <span class="rotulo">
-          Abrir a janela de leitura
-          <small>Útil quando o texto veio de onde não dá para acompanhar — um terminal que
-                 rolou, um PDF.</small>
-        </span>
-        <input type="checkbox" id="openReaderOnRead">
-      </label>
-    </section>
-
-    <section class="grupo">
-      <h2>Vocabulário</h2>
-
-      <label class="linha">
-        <span class="rotulo">
-          Termos
-          <small>Nomes próprios e jargão que a transcrição erra, separados por vírgula.
-                 Vão como contexto para o modelo — sem isso, "Traefik" volta como "trafic".
-                 Só vale para os modelos remotos; o Vosk local ignora.</small>
-        </span>
-        <input type="text" id="vocabulary" spellcheck="false" placeholder="Traefik, CasaOS, Tailscale">
-      </label>
-
-      <label class="linha">
-        <span class="rotulo">
-          Instruções
-          <small>Uma frase sobre o que você costuma ditar. Entra no mesmo contexto, depois
-                 dos termos.</small>
-        </span>
-        <input type="text" id="customInstructions" spellcheck="false"
-               placeholder="Falo sobre infraestrutura e programação.">
-      </label>
-    </section>
-
-    <section class="grupo">
-      <h2>Atalhos</h2>
-
-      <label class="linha">
-        <span class="rotulo">
-          Ditar
-          <small>Vale depois de reiniciar o Vox.</small>
-        </span>
-        <input type="text" id="shortcutDictate" spellcheck="false" placeholder="Ctrl+Shift+D">
-      </label>
-
-      <label class="linha">
-        <span class="rotulo">Ler</span>
-        <input type="text" id="shortcutRead" spellcheck="false" placeholder="Ctrl+Alt+L">
-      </label>
-
-      <label class="linha">
-        <span class="rotulo">
-          Mostrar widget
-          <small>Abre o widget em repouso, sem iniciar ditado ou leitura.</small>
-        </span>
-        <input type="text" id="shortcutShowWidget" spellcheck="false" placeholder="Ctrl+Alt+V">
-      </label>
-    </section>
-
-    <section class="grupo">
-      <h2>Extensão de navegador</h2>
-
-      <label class="linha">
-        <span class="rotulo">
-          Ponte local
-          <small>Abre <code>127.0.0.1</code> para a extensão destacar o texto na página.</small>
-        </span>
-        <input type="checkbox" id="bridgeEnabled">
-      </label>
-
-      <label class="linha">
-        <span class="rotulo">Porta</span>
-        <input type="number" id="bridgePort" min="1" max="65535">
-      </label>
-
-      <div class="linha">
-        <span class="rotulo">
-          Token
-          <small>Cole nas opções da extensão. Ele existe porque loopback não é fronteira de
-                 confiança.</small>
-        </span>
-        <div class="controle-faixa">
-          <input type="text" id="bridgeToken" readonly spellcheck="false">
-          <button type="button" class="botao" id="copiarToken">Copiar</button>
+      <!-- ------------------------------------------------------ ditado -->
+      <section class="secao" data-secao="ditado">
+        <div class="grupo">
+          <h2>Captura</h2>
+          <div class="linha">
+            <span class="rotulo"><span>Microfone</span></span>
+            <div class="controle"><div class="select"><select id="inputDevice"></select></div></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Modelo de transcrição</span>
+              <small>O Vosk roda no servidor de casa e o áudio não sai da rede; o Whisper é mais preciso e passa pelo gateway.</small>
+            </span>
+            <div class="controle"><div class="select">
+              <select id="transcriptionModel">
+                <option value="groq/whisper-large-v3-turbo">Whisper large v3 turbo</option>
+                <option value="vosk">Vosk — local</option>
+              </select>
+            </div></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Reconhecer enquanto falo</span>
+              <small>Rede de segurança: se a transcrição final falhar, este texto sobrevive.</small>
+            </span>
+            <div class="controle"><input type="checkbox" id="liveTranscription"></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Mostrar o texto ao vivo</span>
+              <small>Numa janelinha no canto superior direito, fora do caminho da onda.</small>
+            </span>
+            <div class="controle"><input type="checkbox" id="showLiveTranscription"></div>
+          </div>
         </div>
-      </div>
-    </section>
 
-    <p class="rodape">
-      Porta e atalhos só valem depois de reiniciar o Vox. O resto vale na hora.
-    </p>
+        <div class="grupo">
+          <h2>Entrega</h2>
+          <div class="linha">
+            <span class="rotulo"><span>Ao terminar</span></span>
+            <div class="controle"><div class="select">
+              <select id="outputAction">
+                <option value="paste">Colar no app em foco</option>
+                <option value="clipboard">Só copiar</option>
+              </select>
+            </div></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Enviar sozinho</span>
+              <small>Aperta a tecla de envio depois de colar.</small>
+            </span>
+            <div class="controle"><div class="select">
+              <select id="submitMode">
+                <option value="disabled">Nunca</option>
+                <option value="keyword">Quando eu disser a palavra-chave</option>
+                <option value="auto">Sempre</option>
+              </select>
+            </div></div>
+          </div>
+          <div class="linha" id="linhaPalavra">
+            <span class="rotulo">
+              <span>Palavra-chave</span>
+              <small>Dita no fim da frase, ela não entra no texto colado.</small>
+            </span>
+            <div class="controle"><input type="text" id="submitKeyword" spellcheck="false"></div>
+          </div>
+          <div class="linha" id="linhaTecla">
+            <span class="rotulo"><span>Tecla de envio</span></span>
+            <div class="controle"><div class="select">
+              <select id="submitKey">
+                <option value="enter">Enter</option>
+                <option value="shift-enter">Shift+Enter</option>
+              </select>
+            </div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- --------------------------------------------------- ajuste IA -->
+      <section class="secao" data-secao="ajuste">
+        <div class="grupo">
+          <h2>Reescrever o que foi ditado</h2>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Ajustar por IA</span>
+              <small>Desligado, o que sai é o que foi <em>dito</em>: com hesitação, repetição e
+                     frase recomeçada no meio. Ligado, o texto vira o que você escreveria se
+                     tivesse digitado — ao custo de alguns segundos antes de colar.</small>
+            </span>
+            <div class="controle"><input type="checkbox" id="sttRewriteEnabled"></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Intensidade</span>
+              <small>Não é qualidade: é a escolha entre fidelidade e fluência. Em alta o modelo
+                     reorganiza o texto — e aí passa a inventar contexto de vez em quando.</small>
+            </span>
+            <div class="controle segmentos" id="intensidade">
+              <button type="button" data-valor="1" aria-pressed="false">Mínima</button>
+              <button type="button" data-valor="2" aria-pressed="true">Média</button>
+              <button type="button" data-valor="3" aria-pressed="false">Alta</button>
+            </div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Modelo</span>
+              <small>Medido aqui: <code>gemini-2.5-flash-lite</code> leva 2,4 s e o <code>auto/fast</code>
+                     de 8 a 12 s na mesma fala. Vazio usa o padrão do servidor.</small>
+            </span>
+            <div class="controle"><input type="text" id="sttRewriteModel" spellcheck="false" placeholder="agy/gemini-2.5-flash-lite"></div>
+          </div>
+        </div>
+
+        <div class="grupo">
+          <h2>Molde</h2>
+          <div class="presets" id="presets"></div>
+        </div>
+
+        <div class="grupo">
+          <h2>Experimentar</h2>
+          <div class="previa">
+            <textarea id="previaEntrada" spellcheck="false" placeholder="Cole ou dite uma fala crua aqui para ver o que sai."></textarea>
+            <div class="previa-acoes">
+              <button type="button" class="botao" data-primario id="previaRodar">Reescrever</button>
+              <span class="previa-nota" id="previaNota"></span>
+            </div>
+            <div class="previa-saida" id="previaSaida">O resultado aparece aqui.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ----------------------------------------------------- leitura -->
+      <section class="secao" data-secao="leitura">
+        <div class="grupo">
+          <h2>Voz</h2>
+          <div class="linha">
+            <span class="rotulo"><span>Voz</span></span>
+            <div class="controle"><div class="select"><select id="voice"></select></div></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo"><span>Velocidade</span></span>
+            <div class="controle"><div class="faixa">
+              <input type="range" id="speed" min="0.5" max="2" step="0.05">
+              <output id="speedValor">1,00×</output>
+            </div></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Margem antes de começar</span>
+              <small>Folga extra sobre o áudio que o player acumula antes de falar. Mais margem
+                     demora mais para começar e engasga menos no meio.</small>
+            </span>
+            <div class="controle"><div class="faixa">
+              <input type="range" id="prebufferRatio" min="0" max="0.5" step="0.05">
+              <output id="prebufferValor">10%</output>
+            </div></div>
+          </div>
+        </div>
+
+        <div class="grupo">
+          <h2>Acompanhar</h2>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Legenda guiada</span>
+              <small>A pílula cresce e mostra o texto sendo falado. Também liga e desliga no
+                     próprio player, durante a leitura.</small>
+            </span>
+            <div class="controle"><input type="checkbox" id="readingCaptions"></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Abrir a janela de leitura</span>
+              <small>Útil quando o texto veio de onde não dá para acompanhar — um terminal que
+                     rolou, um PDF.</small>
+            </span>
+            <div class="controle"><input type="checkbox" id="openReaderOnRead"></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Corrigir o texto antes de ler</span>
+              <small>Acentuação e ortografia, por um modelo. A limpeza de marcação é sempre
+                     feita e custa milissegundos; isto custa segundos antes do primeiro som.</small>
+            </span>
+            <div class="controle"><input type="checkbox" id="normalizeBeforeReading"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------- vocabulário -->
+      <section class="secao" data-secao="vocabulario">
+        <div class="grupo">
+          <h2>Termos</h2>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Palavras que a transcrição erra</span>
+              <small>Nomes próprios e jargão. Vão como contexto para o reconhecedor — sem isso,
+                     "Traefik" volta como "trafic". Enter adiciona; só vale para os modelos
+                     remotos, o Vosk local ignora.</small>
+            </span>
+            <div class="controle">
+              <div class="fichas" id="fichasVocabulario">
+                <input type="text" id="vocabularyEntrada" spellcheck="false" placeholder="Traefik, CasaOS…">
+              </div>
+            </div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Instruções</span>
+              <small>Uma frase sobre o que você costuma ditar. Entra no mesmo contexto, depois
+                     dos termos.</small>
+            </span>
+            <div class="controle"><textarea id="customInstructions" spellcheck="false"
+              placeholder="Falo sobre infraestrutura, redes e programação."></textarea></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ----------------------------------------------------- atalhos -->
+      <section class="secao" data-secao="atalhos">
+        <div class="grupo">
+          <h2>Comandos globais</h2>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Ditar</span>
+              <small>Aperta uma vez para gravar, de novo para transcrever e colar.</small>
+            </span>
+            <div class="controle"><input type="text" id="shortcutDictate" spellcheck="false" placeholder="Ctrl+Shift+D"></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Ler a seleção</span>
+              <small>Durante a leitura, o mesmo atalho pausa e retoma.</small>
+            </span>
+            <div class="controle"><input type="text" id="shortcutRead" spellcheck="false" placeholder="Ctrl+Alt+L"></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Mostrar o widget</span>
+              <small>Traz a pílula à tela sem começar nada.</small>
+            </span>
+            <div class="controle"><input type="text" id="shortcutShowWidget" spellcheck="false" placeholder="Ctrl+Alt+V"></div>
+          </div>
+        </div>
+
+        <p class="nota">
+          Atalho global é recurso disputado: quem registra primeiro leva, e o Vox
+          sobe depois do navegador. Se uma combinação parar de responder, é sinal de
+          que outro programa a tomou — o menu da bandeja mostra qual falhou ao
+          registrar. Mudanças aqui valem depois de reiniciar o Vox.
+        </p>
+      </section>
+
+      <!-- ------------------------------------------------------ widget -->
+      <section class="secao" data-secao="widget">
+        <div class="grupo">
+          <h2>Posição</h2>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Onde o widget aparece</span>
+              <small id="posicaoAtual">Arraste a pílula para onde quiser: o lugar fica guardado
+                     e vale para as próximas vezes.</small>
+            </span>
+            <div class="controle">
+              <button type="button" class="botao" id="resetarPosicao">Voltar ao padrão</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------------------------------------------------- extensão -->
+      <section class="secao" data-secao="extensao">
+        <div class="grupo">
+          <h2>Ponte local</h2>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Servidor em 127.0.0.1</span>
+              <small>É por ele que a extensão destaca o texto na própria página, sem abrir janela.</small>
+            </span>
+            <div class="controle"><input type="checkbox" id="bridgeEnabled"></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Porta</span>
+              <small>Precisa bater com a das opções da extensão. Vale depois de reiniciar o Vox.</small>
+            </span>
+            <div class="controle"><input type="number" id="bridgePort" min="1" max="65535"></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Token</span>
+              <small>Cole nas opções da extensão. Ele existe porque <code>127.0.0.1</code> não é
+                     fronteira de confiança: sem ele, qualquer programa da máquina que
+                     descobrisse a porta poderia mandar o Vox falar.</small>
+            </span>
+            <div class="controle">
+              <input type="text" id="bridgeToken" readonly spellcheck="false">
+              <button type="button" class="botao" id="copiarToken">Copiar</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------------- sobre -->
+      <section class="secao" data-secao="sobre">
+        <div class="grupo">
+          <h2>Serviço de voz</h2>
+          <div class="sobre-linha"><span>Endereço</span><span id="sobreUrl">—</span></div>
+          <div class="sobre-linha"><span>Versão da API</span><span id="sobreVersao">—</span></div>
+          <div class="sobre-linha"><span>Vozes disponíveis</span><span id="sobreVozes">—</span></div>
+          <div class="sobre-linha"><span>Arquivo de preferências</span><span id="sobreConfig">—</span></div>
+        </div>
+
+        <p class="nota">
+          O ditado manda áudio para o modelo escolhido em <strong>Ditado</strong>: o Vosk
+          decodifica no servidor de casa e nada sai da rede; o Whisper passa pelo gateway.
+          O ajuste por IA e a correção da leitura sempre passam pelo gateway — se isso não
+          for aceitável para algum texto, os dois têm interruptor próprio.
+        </p>
+      </section>
+
+    </div>
   </main>
+</div>
 
-  <script type="module" src="js/settings.js"></script>
+<script type="module" src="js/settings.js"></script>
 </body>
 </html>

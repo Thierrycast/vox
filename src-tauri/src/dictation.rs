@@ -182,6 +182,47 @@ impl Dictation {
         Ok(())
     }
 
+    /// Passa o texto ditado por um modelo, se a preferência estiver ligada.
+    ///
+    /// Devolve sempre um texto utilizável. Falha de rede, modelo fora do ar,
+    /// resposta com tamanho suspeito — em todos os casos o que volta é o que foi
+    /// ditado. A pessoa acabou de falar e está esperando para colar; entregar
+    /// nada seria muito pior do que entregar sem o ajuste.
+    async fn rewrite(&self, text: &str, settings: &Settings) -> String {
+        let comecou = std::time::Instant::now();
+
+        let resultado = self
+            .api
+            .rewrite_text(
+                text,
+                &settings.stt_rewrite_preset,
+                settings.stt_rewrite_intensity,
+                settings.stt_rewrite_model.as_deref(),
+            )
+            .await;
+
+        match resultado {
+            Ok(saida) => {
+                if let Some(motivo) = saida.rewritten.error.or(saida.rewritten.skipped) {
+                    tracing::warn!(motivo, "reescrita não foi aplicada; texto original mantido");
+                } else {
+                    tracing::info!(
+                        preset = %settings.stt_rewrite_preset,
+                        intensidade = settings.stt_rewrite_intensity,
+                        modelo_ms = saida.rewritten.elapsed_ms,
+                        total_ms = comecou.elapsed().as_millis(),
+                        "texto reescrito"
+                    );
+                }
+                saida.text
+            }
+            Err(err) => {
+                tracing::warn!(?err, "reescrita falhou; entregando o texto ditado");
+                text.to_string()
+            }
+        }
+    }
+
     /// Abre a sessão de streaming e bombeia áudio enquanto a gravação dura.
     ///
     /// Roda numa tarefa própria e nunca propaga erro para o ditado: qualquer
@@ -381,8 +422,19 @@ impl Dictation {
             return Ok(String::new());
         }
 
+        // A reescrita vem antes da palavra-chave de envio, e não depois: se ela
+        // rodasse por último, o modelo receberia "manda ver" no fim do texto e
+        // trataria como conteúdo — ou, pior, o reescreveria e a palavra deixaria
+        // de ser reconhecida.
         let (text, should_submit) =
             paste::resolve_submit(&text, settings.submit_mode, &settings.submit_keyword);
+
+        let text = if settings.stt_rewrite_enabled {
+            emit_state(&app, "rewriting", Some("Ajustando"), None);
+            self.rewrite(&text, &settings).await
+        } else {
+            text
+        };
 
         // Sem chave para ligar e desligar: `fit_to_context` só faz alguma coisa
         // quando sabe o que está antes do cursor, e hoje ninguém sabe — ler isso

@@ -209,6 +209,13 @@ de vida. Foi uma decisão de desenho, não acidente de implementação.
 | `live` | canto superior direito | só se `show_live_transcription` estiver ligada |
 | `settings` | janela normal | pela bandeja — clique no ícone ou *Preferências…* |
 
+A janela de preferências é um aplicativo, e não um formulário: navegação lateral
+com nove seções, controles próprios (interruptor, seletor, fichas de vocabulário)
+e cor de destaque escolhível. Os `<select>` nativos continuam no DOM guardando o
+valor e respondendo ao teclado — o que se vê é desenhado por cima deles, porque
+a lista cinza-clara do Windows no meio de uma janela escura é de outro
+aplicativo.
+
 O texto reconhecido ao vivo mora fora do HUD porque as duas coisas têm ritmos
 incompatíveis: a onda responde à voz em tempo real e precisa ficar parada no
 lugar, enquanto o texto cresce e reflui a cada palavra. Dentro do mesmo card, o
@@ -277,6 +284,37 @@ na síntese, então o que se perde é o corte bom, não a marcação falada.
 um modelo, e fica desligada por padrão: custa de 4 a 7 segundos por parágrafo
 antes do primeiro som. Vale para texto mal escrito; é pura espera para texto que
 já está certo, que é a maioria do que se lê. A chave está no painel.
+
+## O ajuste por IA do que foi ditado
+
+A transcrição é fiel ao que foi **dito**: hesitação, repetição, frase recomeçada
+no meio, "né" e "tipo assim". Fiel e quase nunca é o que a pessoa queria ter
+escrito — e limpar isso à mão anula o ganho de ter ditado.
+
+Ligado nas preferências, o texto passa por um modelo antes de ser colado. Cinco
+moldes, que o servidor lista em `GET /text/presets`:
+
+| Molde | O que sai |
+|---|---|
+| Fala limpa | o mesmo conteúdo sem os tropeços, na sua voz |
+| Prompt | uma instrução direta para um agente |
+| Prompt detalhado | objetivo, contexto, restrições e critério de pronto |
+| Mensagem profissional | registro de trabalho |
+| Traduzir para inglês | limpa e traduz |
+
+A **intensidade** (mínima, média, alta) não é um botão de qualidade: é a escolha
+entre fidelidade e fluência. Em mínima o modelo tira hesitação e mantém as frases
+como foram ditas; em alta ele reorganiza — e às vezes inventa contexto. Numa
+medição, "quando tá pausado" virou "quando o vídeo está pausado", sem vídeo
+nenhum na frase. Por isso a escala é explícita na interface e vem em média.
+
+O custo é de segundos, e a escolha do modelo é o que decide se são dois ou dez:
+medido aqui, `agy/gemini-2.5-flash-lite` leva **2,4 s** e o `auto/fast` leva de
+8 a 12 s na mesma fala. O painel tem uma prévia para experimentar antes de
+confiar no molde para o dia a dia.
+
+Falha nunca custa o que foi ditado: modelo fora do ar, resposta vazia ou com
+tamanho fora da faixa do molde devolvem o texto original, com o motivo no log.
 
 ## O vocabulário chegou ao reconhecedor
 

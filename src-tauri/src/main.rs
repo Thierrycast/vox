@@ -132,6 +132,70 @@ fn set_reading_captions(app: AppHandle, state: State<'_, AppState>, enabled: boo
     });
 }
 
+/// Reescreve um texto para a prévia do painel.
+///
+/// O painel precisa mostrar o efeito de um preset antes de a pessoa confiar nele
+/// para o ditado do dia a dia — descrever "tira vício de linguagem" não é a
+/// mesma coisa que ver a própria fala virar outra.
+#[tauri::command]
+async fn rewrite_preview(
+    state: State<'_, AppState>,
+    text: String,
+    preset: String,
+    intensity: u8,
+) -> Result<serde_json::Value, String> {
+    let modelo = state.settings.lock().stt_rewrite_model.clone();
+
+    let resultado = state
+        .api
+        .rewrite_text(&text, &preset, intensity, modelo.as_deref())
+        .await
+        .map_err(|err| err.to_string())?;
+
+    Ok(serde_json::json!({
+        "text": resultado.text,
+        "rewritten": {
+            "applied": resultado.rewritten.applied,
+            "elapsed_ms": resultado.rewritten.elapsed_ms,
+            "error": resultado.rewritten.error,
+            "skipped": resultado.rewritten.skipped,
+        },
+    }))
+}
+
+/// Os moldes de reescrita que o servidor conhece.
+#[tauri::command]
+async fn rewrite_presets(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    state.api.rewrite_presets().await.map_err(|err| err.to_string())
+}
+
+/// Endereço da API, para o painel dizer para onde o áudio vai.
+#[tauri::command]
+fn api_base_url() -> String {
+    config::base_url()
+}
+
+/// Caminho do arquivo de preferências.
+#[tauri::command]
+fn settings_path() -> String {
+    config::settings_path().to_string_lossy().to_string()
+}
+
+/// Esquece a posição guardada do widget e o devolve ao lugar de origem.
+#[tauri::command]
+fn reset_hud_position(app: AppHandle, state: State<'_, AppState>) {
+    {
+        let mut settings = state.settings.lock();
+        settings.hud_position = None;
+        if let Err(err) = settings.save() {
+            tracing::warn!(?err, "não deu para esquecer a posição do widget");
+        }
+    }
+    // Reaplica a forma atual: sem posição guardada, `shape_hud` volta a calcular
+    // o lugar padrão, e a pílula vai para lá na hora em vez de na próxima vez.
+    dictation::shape_hud(&app, dictation::HudShape::Column);
+}
+
 /// Abre o painel de preferências.
 #[tauri::command]
 fn open_settings(app: AppHandle) {
@@ -748,6 +812,11 @@ fn main() {
             preview_sound,
             set_reading_captions,
             open_settings,
+            rewrite_preview,
+            rewrite_presets,
+            api_base_url,
+            settings_path,
+            reset_hud_position,
             show_floating_widget,
         ])
         .setup(|app| {

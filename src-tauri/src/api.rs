@@ -34,6 +34,26 @@ pub struct SpeechApi {
     credentials: Option<Credentials>,
 }
 
+/// Resposta de `/text/rewrite`.
+#[derive(Debug, Deserialize)]
+pub struct RewriteResult {
+    pub text: String,
+    #[serde(default)]
+    pub rewritten: RewriteReport,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct RewriteReport {
+    #[serde(default)]
+    pub applied: bool,
+    #[serde(default)]
+    pub elapsed_ms: u64,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub skipped: Option<String>,
+}
+
 /// Resposta de `/text/prepare`.
 ///
 /// Só o texto interessa ao fluxo; o resto do corpo é diagnóstico, e desses só o
@@ -215,6 +235,53 @@ impl SpeechApi {
         }
 
         Ok(corpo.text)
+    }
+
+    /// Reescreve a transcrição segundo um preset, e devolve o texto final.
+    ///
+    /// Nunca falha para quem chamou: o servidor devolve o texto original quando o
+    /// modelo não responde, e aqui um erro de rede vira o mesmo. Perder o que foi
+    /// ditado porque a reescrita não deu certo seria trocar "ficou menos bonito"
+    /// por "sumiu".
+    pub async fn rewrite_text(
+        &self,
+        text: &str,
+        preset: &str,
+        intensity: u8,
+        model: Option<&str>,
+    ) -> Result<RewriteResult> {
+        let mut corpo = serde_json::json!({
+            "text": text,
+            "preset": preset,
+            "intensity": intensity,
+        });
+        if let Some(nome) = model.filter(|valor| !valor.trim().is_empty()) {
+            corpo["model"] = serde_json::Value::String(nome.to_string());
+        }
+
+        let response = self
+            .request(reqwest::Method::POST, "/text/rewrite")
+            .json(&corpo)
+            .send()
+            .await
+            .context("pedir a reescrita do texto")?;
+
+        ensure_ok(&response)?;
+        response.json().await.context("ler o texto reescrito")
+    }
+
+    /// Os moldes de reescrita que o servidor conhece.
+    ///
+    /// A lista vem de lá para o painel não guardar uma cópia: um preset novo no
+    /// servidor aparece no app sem uma versão nova dele.
+    pub async fn rewrite_presets(&self) -> Result<serde_json::Value> {
+        let response = self
+            .request(reqwest::Method::GET, "/text/presets")
+            .send()
+            .await
+            .context("listar os presets de reescrita")?;
+        ensure_ok(&response)?;
+        Ok(response.json().await?)
     }
 
     pub async fn speak(&self, text: &str, voice: &str, speed: f32) -> Result<(TtsResponse, Vec<u8>)> {

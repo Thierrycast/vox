@@ -1,21 +1,57 @@
-/* Painel de preferências.
+/* Vox — aplicativo de preferências.
  *
- * Mesma paleta do HUD e da janela de leitura — é o mesmo aplicativo, e uma
- * terceira aparência faria parecer um utilitário de outra pessoa.
+ * ## Por que isto não é um formulário
  *
- * O painel não tem botão de salvar: cada mudança grava sozinha. Um formulário
- * com "Aplicar" convida a fechar sem clicar, e aí a preferência não valeu sem
- * ninguém avisar. O aviso "salvo" no topo é o retorno de que aconteceu.
+ * A versão anterior era uma coluna de linhas com os controles nativos do
+ * navegador. Funcionava e parecia um formulário de site dentro de uma janela do
+ * Windows — nada a ver com a pílula flutuante, que é a cara do aplicativo.
+ *
+ * Aqui a estrutura é a de um app de desktop: uma coluna de navegação fixa à
+ * esquerda, um cabeçalho que diz onde você está, e o conteúdo rolando só na
+ * área que precisa rolar. É a forma que as pessoas já sabem operar sem ler
+ * instrução.
+ *
+ * ## O sistema visual
+ *
+ * Tudo deriva de dois tokens: a cor de fundo e a cor de destaque. A de destaque
+ * é escolhida pela pessoa e chega como variável inline no `<html>` — por isso
+ * nenhuma regra daqui escreve roxo literal.
+ *
+ * Os controles nativos são escondidos e redesenhados, não porque o padrão seja
+ * feio, mas porque ele é de **outro** aplicativo: o `<select>` do Windows abre
+ * uma lista cinza-claro com fonte do sistema no meio de uma janela escura.
  */
 
 :root {
-  --bg: #131315;
-  --card: #1b1b1f;
-  --fg: #f2f2f4;
-  --muted: rgba(255, 255, 255, .52);
-  --line: rgba(255, 255, 255, .10);
+  color-scheme: dark;
+
+  --bg: #0e0e11;
+  --surface: #17171a;
+  --surface-alta: #1d1d22;
+  --surface-topo: #222228;
+
+  --fg: #f4f4f6;
+  --fg-suave: rgba(255, 255, 255, .62);
+  --fg-fraco: rgba(255, 255, 255, .38);
+
+  --linha: rgba(255, 255, 255, .07);
+  --linha-forte: rgba(255, 255, 255, .13);
+
+  /* Trocada pela preferência de tema; o roxo é só o ponto de partida. */
   --accent: #966aff;
-  --radius: 10px;
+  --accent-suave: rgba(150, 106, 255, .16);
+  --accent-forte: rgba(150, 106, 255, .38);
+
+  --verde: #37d67a;
+  --vermelho: #f4585c;
+  --amarelo: #f5c451;
+
+  --raio: 10px;
+  --raio-g: 14px;
+
+  /* Saída cúbica: sai firme e assenta sem o solavanco do expo. A mesma curva
+     da pílula — os dois são o mesmo aplicativo. */
+  --suave: cubic-bezier(.33, 1, .68, 1);
 }
 
 * { box-sizing: border-box; }
@@ -23,144 +59,583 @@
 html, body {
   margin: 0;
   height: 100%;
+  overflow: hidden;
   background: var(--bg);
   color: var(--fg);
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 13.5px;
+  -webkit-font-smoothing: antialiased;
 }
 
-body { display: flex; flex-direction: column; }
+/* --------------------------------------------------------------- estrutura */
 
-.topo {
+.app {
+  display: grid;
+  grid-template-columns: 216px 1fr;
+  height: 100%;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 18px 12px 12px;
+  background: var(--surface);
+  border-right: 1px solid var(--linha);
+}
+
+.marca {
   display: flex;
   align-items: baseline;
+  gap: 7px;
+  padding: 0 10px 16px;
+}
+.marca strong { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+.marca span { font-size: 11px; color: var(--fg-fraco); }
+
+.nav-item {
+  display: flex;
+  align-items: center;
   gap: 10px;
-  padding: 16px 22px 10px;
-  border-bottom: 1px solid var(--line);
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--raio);
+  background: transparent;
+  color: var(--fg-suave);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color .18s var(--suave), color .18s var(--suave);
 }
-.topo h1 { margin: 0; font-size: 16px; font-weight: 600; }
+.nav-item:hover { background: rgba(255, 255, 255, .05); color: var(--fg); }
+.nav-item[aria-current="true"] {
+  background: var(--accent-suave);
+  color: var(--fg);
+}
+.nav-item svg { width: 16px; height: 16px; flex-shrink: 0; opacity: .85; }
+.nav-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* O aviso de gravação aparece e some sozinho. Ele confirma sem pedir nada em
-   troca — quem já sabe que salvou não precisa clicar em lugar nenhum. */
-.salvo {
+.nav-espaco { flex: 1; }
+
+/* Estado da API no pé da navegação: a pergunta "está conectado?" aparece antes
+   de alguém procurar por ela, que é quando ela importa. */
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: var(--raio);
+  background: rgba(255, 255, 255, .03);
   font-size: 11.5px;
-  color: #37d67a;
-  opacity: 0;
-  transition: opacity .2s;
+  color: var(--fg-suave);
 }
-.salvo[data-visivel="true"] { opacity: 1; }
+.status .bolinha {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--fg-fraco);
+  flex-shrink: 0;
+  transition: background-color .3s var(--suave);
+}
+.status[data-estado="ok"] .bolinha { background: var(--verde); }
+.status[data-estado="erro"] .bolinha { background: var(--vermelho); }
 
-.painel {
+/* ------------------------------------------------------------------ painel */
+
+.conteudo {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg);
+}
+
+.cabecalho {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 28px 16px;
+  border-bottom: 1px solid var(--linha);
+}
+.cabecalho h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.015em; }
+.cabecalho p { margin: 5px 0 0; font-size: 12.5px; color: var(--fg-suave); max-width: 62ch; }
+
+/* O aviso de gravação confirma sem pedir nada em troca — o painel não tem botão
+   de salvar, e sem esta linha a pessoa não teria como saber que valeu. */
+.salvo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 11.5px;
+  color: var(--verde);
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity .25s var(--suave), transform .25s var(--suave);
+}
+.salvo[data-visivel="true"] { opacity: 1; transform: none; }
+
+.rolagem {
   flex: 1;
   overflow-y: auto;
-  padding: 6px 22px 24px;
+  padding: 8px 28px 40px;
+  scroll-behavior: smooth;
 }
+
+/* A barra de rolagem do sistema é clara e larga demais para uma janela escura.
+   Fina, sem setas e sem trilho, ela deixa de disputar atenção com o conteúdo. */
+.rolagem::-webkit-scrollbar { width: 10px; }
+.rolagem::-webkit-scrollbar-track { background: transparent; }
+.rolagem::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, .12);
+  border: 3px solid var(--bg);
+  border-radius: 999px;
+}
+.rolagem::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .22); }
+
+.secao { display: none; animation: entrar .3s var(--suave); }
+.secao[data-ativa="true"] { display: block; }
+@keyframes entrar {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ------------------------------------------------------------------ grupos */
 
 .grupo {
   margin-top: 18px;
-  padding: 4px 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--card);
+  border: 1px solid var(--linha);
+  border-radius: var(--raio-g);
+  background: var(--surface);
+  overflow: hidden;
 }
 
-.grupo h2 {
-  margin: 14px 0 4px;
+.grupo > h2 {
+  margin: 0;
+  padding: 13px 18px 11px;
+  border-bottom: 1px solid var(--linha);
+  background: var(--surface-alta);
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: .08em;
+  letter-spacing: .07em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--fg-suave);
 }
 
 .linha {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
-  padding: 11px 0;
-  border-top: 1px solid var(--line);
+  gap: 22px;
+  padding: 14px 18px;
 }
-.grupo h2 + .linha { border-top: 0; }
+.linha + .linha { border-top: 1px solid var(--linha); }
 
-.rotulo { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+/* O rótulo é o que precisa quebrar quando falta espaço; o controle tem largura
+   fixa. Sem `min-width: 0` o texto empurra o controle para fora do card — foi
+   exatamente o que aconteceu na versão anterior. */
+.rotulo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.rotulo > span { font-weight: 500; }
 .rotulo small {
   font-size: 11.5px;
-  line-height: 1.4;
-  color: var(--muted);
+  line-height: 1.45;
+  color: var(--fg-suave);
   font-weight: 400;
+  max-width: 58ch;
 }
+
+.controle { flex-shrink: 0; display: flex; align-items: center; gap: 10px; }
 
 code {
   font-family: ui-monospace, "Cascadia Code", monospace;
-  font-size: .92em;
-  padding: 1px 4px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, .08);
+  font-size: .9em;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .07);
+  color: var(--fg);
 }
+
+/* ------------------------------------------------------------------ campos */
 
 input[type="text"],
 input[type="number"],
-select {
-  flex-shrink: 0;
-  width: 232px;
-  padding: 7px 9px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: rgba(255, 255, 255, .04);
+textarea {
+  width: 240px;
+  padding: 8px 11px;
+  border: 1px solid var(--linha-forte);
+  border-radius: var(--raio);
+  background: rgba(0, 0, 0, .25);
   color: inherit;
   font: inherit;
+  transition: border-color .18s var(--suave), background-color .18s var(--suave);
 }
+input[type="text"]:hover,
+input[type="number"]:hover,
+textarea:hover { border-color: rgba(255, 255, 255, .2); }
 input[type="text"]:focus,
 input[type="number"]:focus,
-select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+textarea:focus {
+  outline: 0;
+  border-color: var(--accent);
+  background: rgba(0, 0, 0, .35);
+}
+input::placeholder, textarea::placeholder { color: var(--fg-fraco); }
 
-input[readonly] { color: var(--muted); font-family: ui-monospace, monospace; font-size: 12px; }
+textarea { width: 300px; min-height: 62px; resize: vertical; line-height: 1.5; }
+input[readonly] { color: var(--fg-suave); font-family: ui-monospace, monospace; font-size: 12px; }
+input[type="number"] { width: 110px; }
 
+/* --- interruptor -----------------------------------------------------------
+ *
+ * Caixa de seleção diz "marque o que se aplica"; interruptor diz "isto está
+ * ligado". A segunda é a pergunta certa para toda preferência daqui, e a forma
+ * carrega o estado sem precisar de rótulo auxiliar. */
 input[type="checkbox"] {
-  flex-shrink: 0;
-  width: 17px;
-  height: 17px;
-  accent-color: var(--accent);
+  appearance: none;
+  position: relative;
+  width: 38px;
+  height: 22px;
+  margin: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .12);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color .22s var(--suave);
 }
+input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .4);
+  transition: transform .22s var(--suave);
+}
+input[type="checkbox"]:checked { background: var(--accent); }
+input[type="checkbox"]:checked::after { transform: translateX(16px); }
+input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.controle-faixa {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-  width: 232px;
+/* --- controle deslizante --- */
+.faixa { display: flex; align-items: center; gap: 12px; width: 240px; }
+
+input[type="range"] {
+  appearance: none;
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .14);
+  cursor: pointer;
 }
-.controle-faixa input[type="range"] { flex: 1; accent-color: var(--accent); }
-.controle-faixa input[type="text"] { width: auto; flex: 1; }
-.controle-faixa output {
-  min-width: 44px;
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .45);
+  transition: transform .15s var(--suave);
+}
+input[type="range"]:hover::-webkit-slider-thumb { transform: scale(1.15); }
+input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+
+output {
+  min-width: 46px;
   font-variant-numeric: tabular-nums;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--fg-suave);
   text-align: right;
 }
 
-.botao {
-  padding: 6px 11px;
-  border: 1px solid var(--line);
+/* --- seletor próprio -------------------------------------------------------
+ *
+ * O `<select>` nativo continua no DOM e continua sendo a fonte da verdade: ele
+ * é quem guarda o valor, quem o `settings.js` lê e quem responde por
+ * acessibilidade. O que se vê é um botão e uma lista desenhados por nós.
+ *
+ * Esconder com `display: none` tiraria o elemento do foco e do teclado; a
+ * sobreposição transparente mantém tudo funcionando por baixo. */
+.select { position: relative; width: 240px; }
+.select select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.select-botao {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 11px;
+  border: 1px solid var(--linha-forte);
+  border-radius: var(--raio);
+  background: rgba(0, 0, 0, .25);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .18s var(--suave), background-color .18s var(--suave);
+}
+.select:hover .select-botao { border-color: rgba(255, 255, 255, .2); }
+.select select:focus-visible + .select-botao { border-color: var(--accent); }
+.select-botao .valor { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-botao .seta {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: .5;
+  transition: transform .25s var(--suave);
+}
+.select[data-aberto="true"] .select-botao .seta { transform: rotate(180deg); }
+
+.select-lista {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--linha-forte);
+  border-radius: var(--raio);
+  background: var(--surface-topo);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .55);
+  opacity: 0;
+  transform: translateY(-6px) scale(.985);
+  transform-origin: top;
+  pointer-events: none;
+  transition: opacity .18s var(--suave), transform .18s var(--suave);
+}
+.select[data-aberto="true"] .select-lista {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.select-lista::-webkit-scrollbar { width: 8px; }
+.select-lista::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, .14);
+  border: 2px solid var(--surface-topo);
+  border-radius: 999px;
+}
+
+.select-opcao {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, .06);
+  cursor: pointer;
+  transition: background-color .14s var(--suave);
+}
+.select-opcao:hover { background: rgba(255, 255, 255, .07); }
+.select-opcao[data-escolhida="true"] { background: var(--accent-suave); }
+.select-opcao .marca-check { width: 13px; height: 13px; opacity: 0; color: var(--accent); }
+.select-opcao[data-escolhida="true"] .marca-check { opacity: 1; }
+
+/* --- botões --- */
+.botao {
+  padding: 7px 13px;
+  border: 1px solid var(--linha-forte);
+  border-radius: var(--raio);
+  background: rgba(255, 255, 255, .05);
   color: inherit;
   font: inherit;
   font-size: 12.5px;
   cursor: pointer;
+  white-space: nowrap;
+  transition: background-color .18s var(--suave), border-color .18s var(--suave);
 }
-.botao:hover { background: rgba(255, 255, 255, .12); }
+.botao:hover { background: rgba(255, 255, 255, .11); border-color: rgba(255, 255, 255, .22); }
 .botao:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.botao[data-primario] {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 500;
+}
+.botao[data-primario]:hover { filter: brightness(1.12); }
 
-.rodape {
-  margin: 18px 2px 0;
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--muted);
+/* --- escolha segmentada ---
+ *
+ * Para três opções ordenadas — a intensidade do ajuste — uma lista suspensa
+ * esconderia justamente o que importa, que é serem uma escala. */
+.segmentos {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: var(--raio);
+  background: rgba(0, 0, 0, .3);
+  border: 1px solid var(--linha-forte);
+}
+.segmentos button {
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-suave);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background-color .2s var(--suave), color .2s var(--suave);
+}
+.segmentos button:hover { color: var(--fg); }
+.segmentos button[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
 }
 
-/* Some sem deixar buraco: `display: none` no lugar do `visibility`, porque a
-   linha da palavra-chave não existe quando o envio automático está desligado. */
+/* --- fichas de vocabulário ---
+ *
+ * Uma linha de texto separada por vírgula funcionava e não mostrava o que já
+ * existe: o olho não separa vinte termos numa linha só. Cada termo vira uma
+ * ficha que dá para remover sem editar texto. */
+.fichas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 300px;
+  padding: 7px;
+  border: 1px solid var(--linha-forte);
+  border-radius: var(--raio);
+  background: rgba(0, 0, 0, .25);
+  min-height: 42px;
+  align-content: flex-start;
+}
+.ficha {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 5px 3px 9px;
+  border-radius: 999px;
+  background: var(--accent-suave);
+  border: 1px solid var(--accent-forte);
+  font-size: 12px;
+  animation: entrar .2s var(--suave);
+}
+.ficha button {
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg-suave);
+  cursor: pointer;
+  transition: background-color .15s var(--suave), color .15s var(--suave);
+}
+.ficha button:hover { background: rgba(255, 255, 255, .15); color: var(--fg); }
+.fichas input {
+  flex: 1;
+  min-width: 90px;
+  width: auto;
+  padding: 3px 4px;
+  border: 0;
+  background: transparent;
+  font-size: 12.5px;
+}
+.fichas input:focus { outline: 0; }
+
+/* --- cartões de preset ---
+ *
+ * O preset muda o que sai do outro lado, não um parâmetro numérico. Ver a
+ * descrição de cada um lado a lado é o que permite escolher sem testar os cinco. */
+.presets { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; padding: 14px 18px; }
+
+.preset {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 13px;
+  border: 1px solid var(--linha-forte);
+  border-radius: var(--raio);
+  background: rgba(0, 0, 0, .2);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .2s var(--suave), background-color .2s var(--suave), transform .2s var(--suave);
+}
+.preset:hover { border-color: rgba(255, 255, 255, .24); transform: translateY(-1px); }
+.preset[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-suave);
+}
+.preset strong { font-size: 13px; font-weight: 600; }
+.preset small { font-size: 11.5px; line-height: 1.45; color: var(--fg-suave); }
+
+/* --- amostras de cor --- */
+.cores { display: flex; gap: 8px; }
+.cor {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform .18s var(--suave), border-color .18s var(--suave);
+}
+.cor:hover { transform: scale(1.12); }
+.cor[aria-pressed="true"] { border-color: #fff; }
+
+/* --- prévia da reescrita --- */
+.previa { padding: 0 18px 16px; }
+.previa textarea { width: 100%; min-height: 70px; }
+.previa-saida {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--linha);
+  border-radius: var(--raio);
+  background: rgba(0, 0, 0, .22);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--fg-suave);
+  min-height: 46px;
+  white-space: pre-wrap;
+}
+.previa-saida[data-cheia="true"] { color: var(--fg); }
+.previa-acoes { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.previa-nota { font-size: 11.5px; color: var(--fg-fraco); }
+
+/* --- sobre --- */
+.sobre-linha {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 18px;
+  font-size: 13px;
+}
+.sobre-linha + .sobre-linha { border-top: 1px solid var(--linha); }
+.sobre-linha span:last-child { color: var(--fg-suave); font-variant-numeric: tabular-nums; }
+
+.nota {
+  margin: 16px 2px 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--fg-fraco);
+}
+
 [hidden] { display: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  .rolagem { scroll-behavior: auto; }
+}

@@ -60,11 +60,11 @@
       {
         "label": "settings",
         "url": "settings.html",
-        "title": "Vox — Preferencias",
-        "width": 640,
+        "title": "Vox",
+        "width": 980,
         "height": 720,
-        "minWidth": 520,
-        "minHeight": 480,
+        "minWidth": 860,
+        "minHeight": 560,
         "resizable": true,
         "visible": false,
         "decorations": true

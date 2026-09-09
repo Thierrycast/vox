@@ -109,6 +109,30 @@ pub struct Settings {
     pub vocabulary: Vec<String>,
     pub custom_instructions: String,
 
+    // --- reescrita do que foi ditado ---
+    /// Passa a transcrição por um modelo antes de entregar.
+    ///
+    /// Desligado, o que sai é o que foi **dito** — com hesitação, repetição e
+    /// frase recomeçada no meio. É fiel, e quase nunca é o que a pessoa queria
+    /// ter escrito. Ligado, o texto vira o que ela escreveria se tivesse
+    /// digitado, ao custo de alguns segundos antes da colagem.
+    pub stt_rewrite_enabled: bool,
+
+    /// Qual molde de reescrita usar. Os nomes vêm de `GET /text/presets`; um
+    /// nome desconhecido cai no padrão do servidor em vez de falhar.
+    pub stt_rewrite_preset: String,
+
+    /// Quanto o modelo pode mexer, de 1 a 3.
+    ///
+    /// Não é um botão de qualidade: é a escolha entre fidelidade e fluência. Em
+    /// 1 ele tira hesitação e mantém as frases como foram ditas; em 3 reorganiza
+    /// o texto — e aí passa a inventar contexto de vez em quando, que é o preço
+    /// de deixá-lo reescrever.
+    pub stt_rewrite_intensity: u8,
+
+    /// Modelo específico, quando o padrão do servidor não serve.
+    pub stt_rewrite_model: Option<String>,
+
     // --- leitura ---
     pub voice: String,
     pub speed: f32,
@@ -145,6 +169,12 @@ pub struct Settings {
     pub sounds_volume: f32,
     /// Pasta com os `.aif` do Raycast, para quem já os tem instalados.
     pub external_sounds_directory: Option<PathBuf>,
+
+    /// Cor de destaque da interface, em hexadecimal.
+    ///
+    /// Vale para o painel e para o realce da palavra na legenda guiada — as duas
+    /// coisas que a pessoa olha, e que ficariam estranhas se discordassem.
+    pub theme_accent: String,
 }
 
 impl Default for Settings {
@@ -171,6 +201,11 @@ impl Default for Settings {
             vocabulary: Vec::new(),
             custom_instructions: String::new(),
 
+            stt_rewrite_enabled: false,
+            stt_rewrite_preset: "fala-limpa".into(),
+            stt_rewrite_intensity: 2,
+            stt_rewrite_model: None,
+
             // Cadu, do Piper: escolhido por escuta e confirmado pela medicao —
             // gera em 0,245x o tempo de fala contra 2,2x do Kokoro. Abaixo de
             // 1,0x a geracao acompanha a reproducao, e a leitura nunca engasga.
@@ -189,6 +224,7 @@ impl Default for Settings {
             sounds_enabled: true,
             sounds_volume: 1.0,
             external_sounds_directory: default_raycast_sounds_directory(),
+            theme_accent: "#966aff".into(),
         }
     }
 }
@@ -235,6 +271,20 @@ impl Settings {
             self.sounds_volume = 1.0;
         }
         self.sounds_volume = self.sounds_volume.clamp(0.0, 1.0);
+        self.stt_rewrite_intensity = self.stt_rewrite_intensity.clamp(1, 3);
+        if self.stt_rewrite_preset.trim().is_empty() {
+            self.stt_rewrite_preset = "fala-limpa".into();
+        }
+
+        // Cor inválida vira a padrão em vez de virar CSS quebrado: o front
+        // escreve isto direto numa variável, e `background: lixo` não pinta nada.
+        let cor = self.theme_accent.trim();
+        let valida = cor.len() == 7
+            && cor.starts_with('#')
+            && cor[1..].chars().all(|digito| digito.is_ascii_hexdigit());
+        if !valida {
+            self.theme_accent = "#966aff".into();
+        }
         if self.hud_position.is_some_and(|position| {
             !position.x.is_finite() || !position.y.is_finite()
         }) {
