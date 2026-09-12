@@ -147,11 +147,6 @@ pub struct Settings {
     pub prebuffer_ratio: f32,
 
     // --- atalhos ---
-    /// Combinações globais, no formato do Tauri (`Ctrl+Shift+D`).
-    ///
-    /// Configuráveis porque atalho global é recurso disputado e o que está
-    /// livre varia por máquina: `Ctrl+Shift+S` parecia seguro até descobrirmos
-    /// que abre o DevTools no Chrome.
     /// Combinação de cada comando, pela chave do catálogo em `commands.rs`.
     ///
     /// Um mapa, e não um campo por comando: com oito comandos, um campo cada
@@ -182,6 +177,20 @@ pub struct Settings {
     pub sounds_volume: f32,
     /// Pasta com os `.aif` do Raycast, para quem já os tem instalados.
     pub external_sounds_directory: Option<PathBuf>,
+
+    /// O Vox responde aos comandos, ou está de folga.
+    ///
+    /// Desligado, ele solta os atalhos globais e a ponte recusa pedidos — mas
+    /// continua na bandeja. É a diferença entre "não quero isso agora" e "não
+    /// quero isto instalado", e só a primeira precisa de um interruptor.
+    pub service_enabled: bool,
+
+    /// Sobe junto com o Windows.
+    ///
+    /// A preferência é a intenção; o estado de verdade é a chave `Run` do
+    /// registro, e a partida alinha as duas — alguém pode ter limpado a chave
+    /// com um utilitário de inicialização por fora.
+    pub start_with_windows: bool,
 
     /// Cor de destaque da interface, em hexadecimal.
     ///
@@ -236,6 +245,8 @@ impl Default for Settings {
             sounds_enabled: true,
             sounds_volume: 1.0,
             external_sounds_directory: default_raycast_sounds_directory(),
+            service_enabled: true,
+            start_with_windows: false,
             theme_accent: "#966aff".into(),
         }
     }

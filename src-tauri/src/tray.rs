@@ -10,7 +10,7 @@
 //! o usuário conclui que o app está quebrado. Aqui isso vira uma linha no menu,
 //! dizendo qual atalho falhou e por quê.
 
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
 
@@ -31,6 +31,14 @@ impl ShortcutReport {
 
 pub fn build(app: &AppHandle, report: &ShortcutReport) -> tauri::Result<()> {
     let separador = PredefinedMenuItem::separator(app)?;
+
+    // Os dois interruptores ficam no topo: são o que se procura no menu quando
+    // se clica com o botão direito, e não uma preferência a caçar no painel.
+    let ativo = CheckMenuItem::with_id(
+        app, "alternar_servico", "Vox ativo", true, servico_ligado(app), None::<&str>)?;
+    let no_boot = CheckMenuItem::with_id(
+        app, "alternar_boot", "Iniciar com o Windows", true,
+        crate::autostart::is_enabled(), None::<&str>)?;
 
     let preferencias = MenuItem::with_id(
         app, "preferencias", "Preferências…", true, None::<&str>)?;
@@ -69,17 +77,14 @@ pub fn build(app: &AppHandle, report: &ShortcutReport) -> tauri::Result<()> {
     let menu = Menu::with_items(
         app,
         &[
+            &ativo, &no_boot, &separador,
             &ajuda, &separador,
             &preferencias, &ler, &leitor, &separador,
             &vozes, &config, &separador, &sair,
         ],
     )?;
 
-    let dica = if report.has_failure() {
-        "Vox — um atalho não pôde ser registrado"
-    } else {
-        "Vox — ditado e leitura por voz"
-    };
+    let dica = dica_da_bandeja(servico_ligado(app), report.has_failure());
 
     TrayIconBuilder::with_id("vox")
         .icon(app.default_window_icon().cloned().ok_or_else(|| {
@@ -110,8 +115,60 @@ pub fn build(app: &AppHandle, report: &ShortcutReport) -> tauri::Result<()> {
     Ok(())
 }
 
+/// O que o cursor mostra ao parar sobre o ícone.
+///
+/// É o único lugar onde o estado aparece sem abrir nada, e por isso ele diz o
+/// que está valendo agora — não o nome do aplicativo, que a pessoa já sabe.
+fn dica_da_bandeja(ligado: bool, falha_de_atalho: bool) -> String {
+    if !ligado {
+        return "Vox em pausa — clique com o botão direito para reativar".into();
+    }
+    if falha_de_atalho {
+        return "Vox — um atalho não pôde ser registrado".into();
+    }
+    "Vox — ditado e leitura por voz".into()
+}
+
+fn servico_ligado(app: &AppHandle) -> bool {
+    app.try_state::<AppState>()
+        .map(|state| state.settings.lock().service_enabled)
+        .unwrap_or(true)
+}
+
+/// Redesenha o menu e a dica depois de o estado mudar.
+///
+/// O ícone **não** sai da bandeja em nenhum caso: pausar é dizer "agora não", e
+/// quem some do sistema quando se pede um intervalo obriga a ir procurar o app
+/// para voltar.
+pub fn refresh(app: &AppHandle, ligado: bool) {
+    let Some(tray) = app.tray_by_id("vox") else { return };
+
+    let falha = app
+        .try_state::<AppState>()
+        .map(|state| state.shortcut_report.lock().has_failure())
+        .unwrap_or(false);
+
+    let _ = tray.set_tooltip(Some(dica_da_bandeja(ligado, falha)));
+}
+
 fn responder_menu(app: &AppHandle, id: &str) {
     match id {
+        "alternar_servico" => {
+            let atual = servico_ligado(app);
+            crate::alternar_servico(app, !atual);
+        }
+        "alternar_boot" => {
+            let atual = crate::autostart::is_enabled();
+            if let Err(motivo) = crate::autostart::set(!atual) {
+                tracing::warn!(motivo, "não deu para mudar a inicialização automática");
+                return;
+            }
+            if let Some(state) = app.try_state::<AppState>() {
+                let mut settings = state.settings.lock();
+                settings.start_with_windows = !atual;
+                let _ = settings.save();
+            }
+        }
         "sair" => {
             tracing::info!("saindo pelo menu da bandeja");
             app.exit(0);

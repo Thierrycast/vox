@@ -60,6 +60,8 @@ let carregando = true;
    tratamento próprio mais abaixo. */
 const campos = {
   soundsEnabled: "sounds_enabled",
+  startWithWindows: "start_with_windows",
+  serviceEnabled: "service_enabled",
   soundsVolume: "sounds_volume",
   inputDevice: "input_device",
   transcriptionModel: "transcription_model",
@@ -610,6 +612,27 @@ for (const id of Object.keys(campos)) {
     campo.addEventListener("input", agendarGravacao);
   }
 }
+
+/* Estes dois não passam pela gravação comum: cada um tem efeito imediato no
+   sistema — soltar os atalhos, escrever no registro — e precisa do comando que
+   faz isso, não só do campo gravado. */
+elemento("serviceEnabled").addEventListener("change", async (event) => {
+  await invoke("set_service_enabled", { enabled: event.target.checked });
+  desenhar(await invoke("get_settings"));
+  confirmarGravacao();
+});
+
+elemento("startWithWindows").addEventListener("change", async (event) => {
+  try {
+    await invoke("set_autostart", { enabled: event.target.checked });
+    confirmarGravacao();
+  } catch (erro) {
+    // A caixa volta ao que era: marcar algo que não aconteceu é pior do que
+    // não marcar nada.
+    event.target.checked = !event.target.checked;
+    mostrarFalha(String(erro));
+  }
+});
 
 elemento("externalSounds").addEventListener("input", agendarGravacao);
 elemento("submitMode").addEventListener("change", atualizarDependencias);

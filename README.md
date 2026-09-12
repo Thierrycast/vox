@@ -390,6 +390,33 @@ a onda parecer atrasada em relação à voz; descer devagar é o que dá o decai
 natural. A transição da barra cobre o intervalo inteiro do poll (130 ms), então o
 movimento nunca para.
 
+## A bandeja manda no aplicativo
+
+Dois interruptores no menu do botão direito, e os mesmos no painel:
+
+**Vox ativo.** Desligado, ele solta os atalhos globais, para o que estiver
+tocando e faz a ponte recusar os pedidos da extensão — sem essa última parte, o
+navegador continuaria fazendo o computador falar com o Vox de folga.
+
+O ícone **não sai da bandeja** em nenhum caso. Pausar é dizer "agora não", e quem
+some do sistema quando se pede um intervalo obriga a ir procurar o app para
+voltar. A dica do cursor passa a dizer o estado, porque é o único lugar onde ele
+aparece sem abrir nada.
+
+**Iniciar com o Windows.** Uma entrada na chave `Run` do usuário, escrita pelo
+`reg.exe`. A chave em vez da pasta Inicializar porque criar um `.lnk` exigiria
+COM; o `reg.exe` em vez da API do registro porque falar com ele em Rust pede o
+crate `windows` inteiro para três operações de texto.
+
+A entrada aponta para o **executável**, não para o atalho de desenvolvimento: no
+boot se quer o aplicativo, não uma compilação — o `vox-dev.ps1` recompila quando
+alguma fonte mudou, e isso abriria uma janela de build no login. A consequência é
+que o `.env` do repositório não é lido ao subir pelo boot; hoje isso não muda
+nada, porque o endereço lá é o mesmo que o padrão compilado.
+
+A preferência é a intenção e a chave é o estado. A partida alinha as duas — elas
+divergem quando alguém limpa a inicialização com um utilitário por fora.
+
 ## O catálogo de comandos
 
 Oito comandos globais, declarados uma vez em `src-tauri/src/commands.rs`. O
@@ -505,7 +532,7 @@ promete está ligado:
 
 | | |
 |---|---|
-| Instalador e partida no boot | só o atalho de desenvolvimento; não há MSI nem entrada de inicialização |
+| Instalador | não há MSI; a distribuição ainda é o binário compilado no lugar |
 | Destaque fora do navegador | só a extensão acompanha o texto na tela; em outros apps abre-se a janela de leitura |
 
 Nada disso quebra o uso: ditado e leitura funcionam ponta a ponta.

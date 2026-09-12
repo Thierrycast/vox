@@ -3,6 +3,7 @@
 
 mod api;
 mod audio;
+mod autostart;
 mod bridge;
 mod commands;
 mod config;
@@ -192,6 +193,61 @@ fn command_catalog(state: State<'_, AppState>) -> Vec<serde_json::Value> {
     catalogo_atual(&state)
 }
 
+/// Liga e desliga a resposta do Vox aos comandos.
+///
+/// Desligado ele solta os atalhos globais e a ponte passa a recusar — e continua
+/// na bandeja, que é o ponto: sumir do sistema quando se quer só um intervalo
+/// obrigaria a procurar o app para tê-lo de volta.
+#[tauri::command]
+fn set_service_enabled(app: AppHandle, state: State<'_, AppState>, enabled: bool) {
+    {
+        let mut settings = state.settings.lock();
+        if settings.service_enabled == enabled {
+            return;
+        }
+        settings.service_enabled = enabled;
+        if let Err(err) = settings.save() {
+            tracing::warn!(?err, "não deu para guardar o estado do serviço");
+        }
+    }
+
+    aplicar_estado_do_servico(&app, enabled);
+}
+
+/// Faz valer o interruptor: atalhos, o que estava em curso, e a bandeja.
+fn aplicar_estado_do_servico(app: &AppHandle, enabled: bool) {
+    if enabled {
+        let report = register_shortcuts(app);
+        *app.state::<AppState>().shortcut_report.lock() = report;
+        tracing::info!("vox ativo");
+    } else {
+        if let Err(err) = app.global_shortcut().unregister_all() {
+            tracing::warn!(?err, "não deu para soltar os atalhos");
+        }
+
+        // Desligar com a voz no ar deixaria o áudio tocando sem nenhum atalho
+        // para pará-lo — o widget ainda tem o botão, mas quem desliga o serviço
+        // não está olhando para ele.
+        let state = app.state::<AppState>();
+        state.reader.stop(app);
+        state.bridge.clear();
+        state.dictation.cancel(app);
+        tracing::info!("vox em pausa: atalhos soltos e ponte recusando");
+    }
+
+    tray::refresh(app, enabled);
+}
+
+/// Liga e desliga a partida junto com o Windows.
+#[tauri::command]
+fn set_autostart(state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    autostart::set(enabled)?;
+
+    let mut settings = state.settings.lock();
+    settings.start_with_windows = enabled;
+    settings.save().map_err(|err| err.to_string())
+}
+
 /// Aplica os atalhos que estão gravados agora, sem reiniciar o app.
 ///
 /// Solta tudo e registra de novo. Isso resolve duas coisas de uma vez: a
@@ -275,6 +331,19 @@ fn open_settings(app: AppHandle) {
 #[tauri::command]
 fn show_floating_widget(app: AppHandle) {
     dictation::show_idle_hud(&app);
+}
+
+/// A bandeja alterna pelo mesmo caminho do painel.
+pub fn alternar_servico(app: &AppHandle, enabled: bool) {
+    {
+        let state = app.state::<AppState>();
+        let mut settings = state.settings.lock();
+        settings.service_enabled = enabled;
+        if let Err(err) = settings.save() {
+            tracing::warn!(?err, "não deu para guardar o estado do serviço");
+        }
+    }
+    aplicar_estado_do_servico(app, enabled);
 }
 
 /// A bandeja abre o mesmo painel; o comando existe para o front, este para ela.
@@ -769,6 +838,17 @@ impl bridge::Acoes for AcoesDaPonte {
         let app = self.app.clone();
 
         Box::pin(async move {
+            // Pausado é pausado, venha o pedido de onde vier. Sem esta checagem a
+            // extensão continuaria fazendo o computador falar com o Vox de folga.
+            {
+                let state = app.state::<AppState>();
+                let ligado = state.settings.lock().service_enabled;
+                if !ligado {
+                    tracing::info!("pedido da extensão recusado: vox em pausa");
+                    return Vec::new();
+                }
+            }
+
             let (voice, speed, prebuffer, normalizar) = {
                 let state = app.state::<AppState>();
                 let settings = state.settings.lock();
@@ -933,6 +1013,8 @@ fn main() {
             rewrite_presets,
             command_catalog,
             reapply_shortcuts,
+            set_service_enabled,
+            set_autostart,
             api_base_url,
             settings_path,
             reset_hud_position,
@@ -974,7 +1056,25 @@ fn main() {
                 let _ = hud.hide();
             }
 
-            let report = register_shortcuts(&handle);
+            // A preferência é a intenção; a chave do registro é o estado. Elas
+            // divergem quando alguém limpa a inicialização com um utilitário por
+            // fora, e a partida é o momento de reconciliar.
+            {
+                let estado = handle.state::<AppState>();
+                let desejado = estado.settings.lock().start_with_windows;
+                autostart::sync(desejado);
+            }
+
+            let ligado = handle.state::<AppState>().settings.lock().service_enabled;
+            if !ligado {
+                tracing::info!("vox sobe em pausa: sem atalhos até ser reativado na bandeja");
+            }
+
+            let report = if ligado {
+                register_shortcuts(&handle)
+            } else {
+                tray::ShortcutReport::default()
+            };
             for info in &report.commands {
                 if let Some(motivo) = &info.failure {
                     tracing::warn!(
