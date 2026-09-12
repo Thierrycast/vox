@@ -45,7 +45,15 @@
     cursor: pointer;
   }
   button:hover { background: #4a7ade; }
-  .estado { margin-left: 12px; font-size: 13px; }
+  /* Bloco, e não ao lado do botão: as mensagens explicam o que fazer, e uma
+     frase inteira ao lado de um botão sai da tela. */
+  .estado {
+    display: block;
+    margin-top: 12px;
+    font-size: 13px;
+    line-height: 1.5;
+    max-width: 56ch;
+  }
   .ok { color: #2e9e5b; }
   .erro { color: #d4453e; }
 </style>
@@ -72,7 +80,7 @@
   </div>
 
   <button id="salvar" type="button">Salvar e testar</button>
-  <span class="estado" id="estado"></span>
+  <div class="estado" id="estado"></div>
 
   <script src="options.js"></script>
 </body>

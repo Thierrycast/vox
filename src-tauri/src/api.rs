@@ -63,6 +63,22 @@ struct PrepareResponse {
     text: String,
     #[serde(default)]
     normalized: Option<NormalizeReport>,
+    #[serde(default)]
+    tables: Option<TableReport>,
+}
+
+/// O que aconteceu com as tabelas do texto.
+///
+/// Registrado no log porque é a única forma de saber, depois, por que uma
+/// leitura soou como uma fila de células em vez de uma explicação.
+#[derive(Debug, Deserialize)]
+struct TableReport {
+    #[serde(default)]
+    count: usize,
+    #[serde(default)]
+    elapsed_ms: u64,
+    #[serde(default)]
+    error: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -213,13 +229,19 @@ impl SpeechApi {
     /// Falhar aqui não impede a leitura: o texto original ainda é legível, só não
     /// está limpo. A API também limpa de novo na síntese, e a limpeza é
     /// idempotente.
-    pub async fn prepare_text(&self, text: &str, normalize: bool) -> Result<String> {
+    pub async fn prepare_text(
+        &self,
+        text: &str,
+        normalize: bool,
+        narrate_tables: bool,
+    ) -> Result<String> {
         let response = self
             .request(reqwest::Method::POST, "/text/prepare")
             .json(&serde_json::json!({
                 "text": text,
                 "sanitize": true,
                 "normalize": normalize,
+                "narrate_tables": narrate_tables,
             }))
             .send()
             .await
@@ -227,6 +249,15 @@ impl SpeechApi {
 
         ensure_ok(&response)?;
         let corpo: PrepareResponse = response.json().await.context("ler o texto preparado")?;
+
+        if let Some(relato) = corpo.tables.filter(|relato| relato.count > 0) {
+            match relato.error {
+                Some(motivo) => tracing::warn!(
+                    tabelas = relato.count, motivo, "tabelas não foram narradas"),
+                None => tracing::info!(
+                    tabelas = relato.count, ms = relato.elapsed_ms, "tabelas narradas"),
+            }
+        }
 
         if let Some(motivo) = corpo.normalized.and_then(|estado| estado.error) {
             // A correção é opcional por natureza; perdê-la não vale interromper a

@@ -25,9 +25,38 @@ Clique em **Salvar e testar**. Se o Vox estiver aberto, a resposta é imediata.
 | Botão direito na seleção → **Ler com o Vox** | lê e destaca |
 | `Alt+Shift+L` | o mesmo, sem tirar a mão do teclado |
 | Clique no ícone da extensão | o mesmo |
+| **Passar o mouse num parágrafo** → botão ▸ | lê daquele parágrafo, sem selecionar |
+| O atalho global do Vox (`Ctrl+Alt+L`) | lê **e a página acompanha** |
 | `Esc` | para a leitura e apaga o destaque |
 
+## Por que a página escuta o atalho do Vox
+
+O Vox é um aplicativo de desktop e a extensão é um cliente dele: a ponte é um
+servidor, e quem fala é a extensão. **Não existe canal do app para o navegador.**
+Quando a leitura começava pelo atalho global, a página não ficava sabendo de
+nada, e a voz falava sem destaque nenhum.
+
+A saída é a própria página ver a tecla. Ela tem foco quando o texto foi
+selecionado ali, então o mesmo `Ctrl+Alt+L` que o Windows entrega ao Vox chega a
+um ouvinte leve que vive em toda página. Ao vê-lo, ela pergunta ao Vox o que está
+sendo lido (`GET /current`) e passa a acompanhar.
+
+A combinação vem do `/health`, e não de uma cópia aqui: uma segunda lista
+divergiria no primeiro ajuste feito no painel, e o sintoma seria a leitura
+funcionando com o destaque parado.
+
+O contador de **geração** distingue "a leitura de antes continua" de "outra
+começou". Sem ele, a extensão pegaria os trechos da leitura anterior e tentaria
+destacá-los numa página que já mudou.
+
 ## Como funciona
+
+Há dois arquivos injetados, e a diferença entre eles é proposital. O `page.js`
+vive em toda página e é quase nada: o botão do hover e o ouvinte do atalho, sem
+DOM próprio até o mouse parar em algum lugar, sem rede e sem observador de
+mutação. O `content.js`, que carrega a máquina de destaque, continua entrando
+**sob demanda** — seria desperdício tê-lo parado em toda aba esperando um clique
+que quase nunca vem.
 
 O Vox abre um servidor em `127.0.0.1:8765`. A extensão manda o texto, recebe de
 volta **os trechos já divididos pelo Vox**, e pergunta a posição da fala a cada
@@ -50,7 +79,14 @@ pode fazer `fetch` para lá, e o navegador bloqueia a *resposta* por CORS — ma
 pedido chega e o efeito acontece. Por isso a checagem é feita no servidor, antes
 de agir, e são duas:
 
-1. **`Origin` tem que ser `chrome-extension://`.** Corta toda página web.
+1. **`Origin` tem que ser `chrome-extension://`** em tudo que muda estado. Corta
+   toda página web: o navegador anexa `Origin` sempre que o método não é
+   GET/HEAD, então uma página **não consegue** fazer um POST sem ele.
+
+   Os `GET` (saúde, progresso, trechos) aceitam origem ausente, porque o Chrome
+   não a anexa num GET simples vindo de uma página de extensão — e era isso que
+   fazia o "Salvar e testar" desta tela responder 403 no primeiro contato de quem
+   acabava de instalar.
 2. **Token no cabeçalho `X-Vox-Token`.** Corta outras extensões e qualquer
    programa da máquina que descubra a porta.
 

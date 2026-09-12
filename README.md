@@ -316,6 +316,28 @@ confiar no molde para o dia a dia.
 Falha nunca custa o que foi ditado: modelo fora do ar, resposta vazia ou com
 tamanho fora da faixa do molde devolvem o texto original, com o motivo no log.
 
+## Tabela não se lê, se explica
+
+Documento com tabela era o pior caso da leitura. Mesmo sem as barras, o que saía
+era *"app, versão, o que entrou, toolbox inventory, zero ponto dois ponto três,
+direção visual"* — uma fila de palavras sem a grade que as fazia significar
+alguma coisa. A estrutura de uma tabela é visual; no áudio ela não existe.
+
+Agora um modelo a transforma em explicação antes de falar:
+
+> *"Esta tabela mostra as atualizações recentes de quatro aplicativos, listando
+> suas versões e as principais novidades de cada um. O toolbox-inventory recebeu
+> a direção visual da spec aplicada, o video-analyzer incorporou entradas mistas
+> no dossiê…"*
+
+Custa 3,1 s numa tabela de quatro linhas, e **zero em texto sem tabela** — por
+isso vem ligado, diferente da correção de acentuação, que custaria em todo texto.
+
+Se o modelo devolver um número de parágrafos diferente do número de tabelas,
+nenhuma é usada: sem correspondência segura, trocar a tabela errada seria dizer
+ao ouvinte um conteúdo que não está ali. Falhando, volta a leitura célula a
+célula — ruim de ouvir, mas é o conteúdo.
+
 ## O vocabulário chegou ao reconhecedor
 
 `vocabulary` e `custom_instructions` eram guardados e nunca enviados — não havia

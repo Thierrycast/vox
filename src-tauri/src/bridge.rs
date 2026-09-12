@@ -60,6 +60,13 @@ pub struct BridgeState {
     /// Trechos da leitura corrente, na ordem. A extensão precisa deles para
     /// casar cada um com um pedaço do DOM.
     segments: Mutex<Vec<String>>,
+    /// Quantas leituras começaram desde que o app subiu.
+    ///
+    /// É o que permite à extensão perceber uma leitura que **ela não começou** —
+    /// a do atalho global, por exemplo. Sem este número ela não teria como
+    /// distinguir "a mesma leitura continua" de "outra começou", e o destaque
+    /// ficaria preso na página anterior.
+    generation: Mutex<u64>,
 }
 
 impl BridgeState {
@@ -67,7 +74,12 @@ impl BridgeState {
         *self.progress.lock() = Progress { index, ratio: ratio.clamp(0.0, 1.0) };
     }
 
+    pub fn generation(&self) -> u64 {
+        *self.generation.lock()
+    }
+
     pub fn set_segments(&self, segments: Vec<String>) {
+        *self.generation.lock() += 1;
         *self.segments.lock() = segments;
         *self.progress.lock() = Progress::default();
     }
@@ -79,6 +91,10 @@ impl BridgeState {
 
     fn snapshot(&self) -> (Progress, usize) {
         (*self.progress.lock(), self.segments.lock().len())
+    }
+
+    fn segments(&self) -> Vec<String> {
+        self.segments.lock().clone()
     }
 }
 
@@ -113,6 +129,17 @@ pub trait Acoes: Send + Sync + 'static {
     /// produz um tipo que possa ser embrulhado assim sem uma dependência a mais.
     fn ler(&self, texto: String) -> Pin<Box<dyn Future<Output = Vec<String>> + Send>>;
     fn parar(&self);
+
+    /// O Vox está respondendo aos comandos, ou em pausa?
+    ///
+    /// A ponte precisa disto para o `/health` poder distinguir "não achei o Vox"
+    /// de "achei, e ele está de folga" — dois problemas com a mesma aparência
+    /// para quem está configurando a extensão, e soluções completamente
+    /// diferentes.
+    fn servico_ligado(&self) -> bool;
+
+    /// A combinação global que começa uma leitura, como `"Ctrl+Alt+L"`.
+    fn atalho_de_leitura(&self) -> String;
 }
 
 pub struct Config {
@@ -219,8 +246,31 @@ fn encontrar(agulha: &[u8], padrao: &[u8]) -> Option<usize> {
 }
 
 /// Só extensão de Chromium. Uma página web tem `Origin` do site dela e cai aqui.
-fn origem_permitida(origem: Option<&str>) -> bool {
-    matches!(origem, Some(valor) if valor.starts_with("chrome-extension://"))
+/// Quem pode falar com a ponte, e por que a regra depende do método.
+///
+/// A checagem de origem existe para uma coisa só: impedir que uma **página web**
+/// mande o computador falar. Loopback não é fronteira de confiança — qualquer
+/// página aberta alcança `127.0.0.1`, e o CORS bloqueia a *resposta*, não o
+/// efeito. Contra outros programas da máquina quem defende é o token.
+///
+/// O navegador manda `Origin` sempre que o método não é GET/HEAD, e sempre que o
+/// pedido é `cors` — que é o padrão de um `fetch`. Ou seja: **uma página web não
+/// consegue fazer um POST sem `Origin`**. Isso separa as duas regras:
+///
+/// - **POST** muda estado (fala, para). Exige `chrome-extension://`.
+/// - **GET** só lê (saúde, progresso). Aceita origem ausente.
+///
+/// Essa distinção não é preciosismo: a página de opções da extensão faz um GET
+/// simples, e o Chrome **não** anexa `Origin` nele. A regra antiga recusava com
+/// 403 justamente o teste de "salvar e testar" — o primeiro contato de quem
+/// acabou de instalar a extensão.
+fn origem_permitida(metodo: &str, origem: Option<&str>) -> bool {
+    match origem {
+        Some(valor) => valor.starts_with("chrome-extension://"),
+        // Sem `Origin` não veio de uma página. Um programa local chega até aqui e
+        // é o token que o barra, uma checagem adiante.
+        None => metodo == "GET",
+    }
 }
 
 async fn atender(
@@ -235,7 +285,7 @@ async fn atender(
     // O preflight responde antes da checagem de token: o navegador o manda sem
     // cabeçalhos nossos, por definição. A origem, essa sim, já vale aqui.
     if pedido.metodo == "OPTIONS" {
-        let resposta = if origem_permitida(origem) {
+        let resposta = if origem_permitida("POST", origem) {
             responder(204, "", origem)
         } else {
             responder(403, "", None)
@@ -244,16 +294,28 @@ async fn atender(
         return Ok(());
     }
 
-    if !origem_permitida(origem) {
+    if !origem_permitida(&pedido.metodo, origem) {
         tracing::warn!(?origem, caminho = %pedido.caminho, "ponte recusou a origem");
-        let corpo = "{\"error\":\"origem nao permitida\"}";
+        // A mensagem diz o que aconteceu **e** o que fazer. Um "403" sozinho
+        // manda a pessoa adivinhar, e ela adivinha errado: da primeira vez que
+        // isto apareceu, a suspeita caiu num container que não tinha relação
+        // nenhuma com a recusa.
+        let corpo = match origem {
+            None => "{\"error\":\"pedido sem cabecalho Origin\",\"detail\":\"So GET e aceito sem origem. Um POST precisa vir de uma extensao do navegador.\"}",
+            Some(_) => "{\"error\":\"origem nao permitida\",\"detail\":\"A ponte so aceita chrome-extension://. Paginas web sao recusadas de proposito: qualquer pagina aberta alcanca 127.0.0.1.\"}",
+        };
         socket.write_all(responder(403, corpo, None).as_bytes()).await?;
         return Ok(());
     }
 
     if pedido.token.as_deref() != Some(token_esperado) {
-        tracing::warn!(caminho = %pedido.caminho, "ponte recusou o token");
-        let corpo = "{\"error\":\"token invalido\"}";
+        let motivo = if pedido.token.is_none() { "ausente" } else { "diferente" };
+        tracing::warn!(caminho = %pedido.caminho, motivo, "ponte recusou o token");
+        let corpo = if pedido.token.is_none() {
+            "{\"error\":\"token ausente\",\"detail\":\"Mande o cabecalho X-Vox-Token. O valor esta em bridge_token, nas preferencias do Vox.\"}"
+        } else {
+            "{\"error\":\"token invalido\",\"detail\":\"O valor nao confere com bridge_token. Copie de novo nas preferencias do Vox, secao Extensao.\"}"
+        };
         socket.write_all(responder(401, corpo, origem).as_bytes()).await?;
         return Ok(());
     }
@@ -280,11 +342,39 @@ async fn atender(
                 "index": progress.index,
                 "ratio": progress.ratio,
                 "segments": total,
+                "generation": estado.generation(),
             });
             (200, serde_json::to_string(&corpo)?)
         }
 
-        ("GET", "/health") => (200, "{\"ok\":true,\"app\":\"vox\"}".to_string()),
+        // O `service_enabled` existe para a extensão poder dizer "conectado, mas
+        // o Vox está em pausa". Sem ele, a configuração pareceria certa e nada
+        // funcionaria — o pior par de sintomas possível.
+        // Os trechos da leitura corrente, para a extensão acompanhar uma leitura
+        // que ela não começou — a do atalho global. Sem isto ela só conseguiria
+        // destacar o que tivesse pedido ela mesma.
+        ("GET", "/current") => {
+            let segments = estado.segments();
+            let corpo = serde_json::json!({
+                "generation": estado.generation(),
+                "segments": segments,
+            });
+            (200, serde_json::to_string(&corpo)?)
+        }
+
+        ("GET", "/health") => {
+            let corpo = serde_json::json!({
+                "ok": true,
+                "app": "vox",
+                "service_enabled": acoes.servico_ligado(),
+                // Qual tecla a página deve escutar para acompanhar uma leitura
+                // começada pelo atalho global. Vai daqui porque uma cópia na
+                // extensão divergiria no primeiro ajuste feito no painel — e o
+                // sintoma seria a leitura funcionando com o destaque parado.
+                "read_shortcut": acoes.atalho_de_leitura(),
+            });
+            (200, serde_json::to_string(&corpo)?)
+        }
 
         _ => (404, "{\"error\":\"rota desconhecida\"}".to_string()),
     };
@@ -332,11 +422,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn so_extensao_passa_na_origem() {
-        assert!(origem_permitida(Some("chrome-extension://abcdefghijklmnop")));
-        assert!(!origem_permitida(Some("https://exemplo.com")));
-        assert!(!origem_permitida(Some("http://127.0.0.1:8765")));
-        assert!(!origem_permitida(None));
+    fn pagina_web_nunca_passa() {
+        // O que a regra existe para barrar: qualquer página aberta alcança
+        // 127.0.0.1, e o CORS bloqueia a resposta, não o efeito.
+        for metodo in ["GET", "POST"] {
+            assert!(!origem_permitida(metodo, Some("https://exemplo.com")));
+            assert!(!origem_permitida(metodo, Some("http://127.0.0.1:8765")));
+        }
+    }
+
+    #[test]
+    fn extensao_passa_em_qualquer_metodo() {
+        for metodo in ["GET", "POST"] {
+            assert!(origem_permitida(metodo, Some("chrome-extension://abcdefghijklmnop")));
+        }
+    }
+
+    /// O Chrome não anexa `Origin` num GET simples vindo de uma página de
+    /// extensão, e era assim que o "salvar e testar" das opções levava 403 —
+    /// o primeiro contato de quem acabou de instalar.
+    ///
+    /// Aceitar isso é seguro porque uma página web **não consegue** fazer um
+    /// POST sem `Origin`: o navegador o anexa sempre que o método não é
+    /// GET/HEAD. O que muda estado continua exigindo a origem da extensão.
+    #[test]
+    fn sem_origem_le_mas_nao_muda_nada() {
+        assert!(origem_permitida("GET", None));
+        assert!(!origem_permitida("POST", None));
     }
 
     #[test]

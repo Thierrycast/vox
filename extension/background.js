@@ -165,8 +165,81 @@ async function avisar(tabId, mensagem) {
   }
 }
 
+/* Acompanha uma leitura que a extensão **não** começou.
+ *
+ * O Vox é um aplicativo de desktop e não tem como avisar o navegador: a ponte é
+ * um servidor, e quem fala é a extensão. Quando a leitura começa pelo atalho
+ * global, a página só descobre porque viu a mesma tecla — e é ela que pede isto
+ * aqui.
+ *
+ * A `generation` do lado do Vox é o que distingue "a leitura de antes continua"
+ * de "outra começou". Sem ela, a extensão pegaria os trechos da leitura anterior
+ * e tentaria destacá-los numa página que já mudou.
+ */
+async function acompanharLeituraExterna(tabId) {
+  const inicio = await chamarVox("/progress").catch(() => null);
+  const geracaoAnterior = inicio?.generation ?? 0;
+
+  // O Vox precisa de tempo para preparar o texto e começar: limpeza, divisão e,
+  // quando ligada, uma ida ao modelo. Doze segundos cobrem o caso com correção;
+  // além disso é mais provável que a leitura nem tenha começado.
+  for (let tentativa = 0; tentativa < 60; tentativa += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    let atual;
+    try {
+      atual = await chamarVox("/current");
+    } catch {
+      return;
+    }
+
+    if (!atual?.segments?.length) continue;
+    if (atual.generation === geracaoAnterior) continue;
+
+    await garantirContentScript(tabId);
+    await chrome.tabs.sendMessage(tabId, {
+      tipo: "comecar",
+      segmentos: atual.segments,
+    }).catch(() => {});
+
+    acompanhar(tabId);
+    return;
+  }
+}
+
 /* O content script pede para parar quando o usuário aperta Esc. */
 chrome.runtime.onMessage.addListener((mensagem, _remetente, responder) => {
+  if (mensagem?.tipo === "atalho-de-leitura") {
+    // A combinação vem do Vox. Uma cópia aqui divergiria no primeiro ajuste que
+    // a pessoa fizesse no painel, e o sintoma seria o pior possível: a leitura
+    // funcionando e o destaque não.
+    chamarVox("/health")
+      .then((saude) => responder({ atalho: saude?.read_shortcut ?? null }))
+      .catch(() => responder({ atalho: null }));
+    return true;
+  }
+
+  if (mensagem?.tipo === "acompanhar-leitura-externa") {
+    const tabId = _remetente?.tab?.id;
+    if (tabId) acompanharLeituraExterna(tabId);
+    responder({ ok: true });
+    return false;
+  }
+
+  if (mensagem?.tipo === "ler-elemento") {
+    const tabId = _remetente?.tab?.id;
+    if (!tabId) {
+      responder({ ok: false });
+      return false;
+    }
+    // Passa pelo mesmo caminho do menu de contexto: a seleção já foi feita pelo
+    // botão flutuante, e daqui para a frente não há diferença nenhuma.
+    iniciarLeitura(tabId)
+      .then(() => responder({ ok: true }))
+      .catch((erro) => responder({ ok: false, erro: String(erro) }));
+    return true;
+  }
+
   if (mensagem?.tipo === "parar") {
     chamarVox("/stop", { method: "POST" })
       .then(() => responder({ ok: true }))

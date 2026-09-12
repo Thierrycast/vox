@@ -1,18 +1,47 @@
 {
   "manifest_version": 3,
   "name": "Vox — leitura em voz alta",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Le o texto selecionado em voz alta pelo Vox, destacando na propria pagina o trecho que esta sendo falado.",
-  "permissions": ["contextMenus", "storage", "activeTab", "scripting"],
-  "host_permissions": ["http://127.0.0.1/*"],
-  "background": { "service_worker": "background.js" },
+  "permissions": [
+    "contextMenus",
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "options_page": "options.html",
-  "action": { "default_title": "Ler a selecao com o Vox" },
+  "action": {
+    "default_title": "Ler a selecao com o Vox"
+  },
   "commands": {
     "ler-selecao": {
-      "suggested_key": { "default": "Alt+Shift+L" },
+      "suggested_key": {
+        "default": "Alt+Shift+L"
+      },
       "description": "Ler a selecao com o Vox"
     }
   },
-  "icons": { "128": "icon128.png" }
+  "icons": {
+    "128": "icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "page.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
 }

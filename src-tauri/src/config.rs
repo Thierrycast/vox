@@ -96,6 +96,15 @@ pub struct Settings {
     /// pura perda para texto que já está certo, que é a maioria do que se lê.
     pub normalize_before_reading: bool,
 
+    /// Transforma tabelas em explicação falada antes de ler.
+    ///
+    /// Ligado por padrão, ao contrário da correção: aqui o custo só existe
+    /// quando o texto **tem** tabela, e o que ele substitui é inaudível de
+    /// qualquer jeito — "app, versão, o que entrou, toolbox inventory, zero
+    /// ponto dois ponto três" é uma fila de palavras sem a grade que as fazia
+    /// significar alguma coisa.
+    pub narrate_tables: bool,
+
     // --- ponte da extensão de navegador ---
     /// Sobe o servidor local que a extensão usa. Desligue para fechar a porta.
     pub bridge_enabled: bool,
@@ -216,6 +225,7 @@ impl Default for Settings {
             open_reader_on_read: false,
             reading_captions: false,
             normalize_before_reading: false,
+            narrate_tables: true,
 
             bridge_enabled: true,
             bridge_port: 8765,

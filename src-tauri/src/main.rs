@@ -849,7 +849,7 @@ impl bridge::Acoes for AcoesDaPonte {
                 }
             }
 
-            let (voice, speed, prebuffer, normalizar) = {
+            let (voice, speed, prebuffer, normalizar, narrar_tabelas) = {
                 let state = app.state::<AppState>();
                 let settings = state.settings.lock();
                 (
@@ -857,6 +857,7 @@ impl bridge::Acoes for AcoesDaPonte {
                     settings.speed,
                     settings.prebuffer_ratio,
                     settings.normalize_before_reading,
+                    settings.narrate_tables,
                 )
             };
 
@@ -868,7 +869,7 @@ impl bridge::Acoes for AcoesDaPonte {
             // modelo em vez de uma.
             let preparado = {
                 let state = app.state::<AppState>();
-                state.reader.prepare(&texto, normalizar).await
+                state.reader.prepare(&texto, normalizar, narrar_tabelas).await
             };
 
             // Divide aqui e devolve a mesma lista que vai ser falada. Dividir dos
@@ -895,6 +896,20 @@ impl bridge::Acoes for AcoesDaPonte {
 
             segments
         })
+    }
+
+    fn servico_ligado(&self) -> bool {
+        self.app.state::<AppState>().settings.lock().service_enabled
+    }
+
+    fn atalho_de_leitura(&self) -> String {
+        let state = self.app.state::<AppState>();
+        let settings = state.settings.lock();
+        settings
+            .shortcuts
+            .get(commands::Command::ReadSelection.id())
+            .cloned()
+            .unwrap_or_else(|| commands::Command::ReadSelection.default_binding().to_string())
     }
 
     fn parar(&self) {

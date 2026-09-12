@@ -43,3 +43,54 @@
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: none; }
 }
+
+/* Botão flutuante que segue o parágrafo sob o cursor.
+ *
+ * `all: initial` primeiro: ele vive dentro do DOM de uma página que não é nossa,
+ * e sem isso qualquer regra de `button` do site — fonte, borda, transform —
+ * chegaria até aqui. Depois dele, só o que nós declaramos existe.
+ *
+ * O z-index máximo e o `position: fixed` mantêm o botão fora do fluxo: ele não
+ * empurra nada, não entra em nenhuma medida de layout da página e não dispara os
+ * observadores que sites usam para vigiar o próprio DOM. */
+.vox-botao-flutuante {
+  all: initial;
+  position: fixed;
+  z-index: 2147483646;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: #17171a;
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .45), inset 0 0 0 1px rgba(255, 255, 255, .14);
+  opacity: 0;
+  transform: scale(.82);
+  pointer-events: none;
+  transition: opacity .18s cubic-bezier(.33, 1, .68, 1),
+              transform .18s cubic-bezier(.33, 1, .68, 1);
+}
+
+.vox-botao-flutuante[data-visivel="true"] {
+  opacity: .92;
+  transform: none;
+  pointer-events: auto;
+}
+
+.vox-botao-flutuante:hover { opacity: 1; transform: scale(1.08); }
+
+/* Enquanto o Vox prepara o áudio: o clique já aconteceu e a voz ainda não
+   começou, e sem sinal nenhum a pessoa clica de novo. */
+.vox-botao-flutuante[data-estado="pedindo"] {
+  opacity: 1;
+  animation: vox-pulso 1s ease-in-out infinite;
+}
+
+@keyframes vox-pulso {
+  0%, 100% { box-shadow: 0 2px 10px rgba(0, 0, 0, .45), inset 0 0 0 1px rgba(150, 106, 255, .5); }
+  50%      { box-shadow: 0 2px 14px rgba(150, 106, 255, .5), inset 0 0 0 1px rgba(150, 106, 255, .9); }
+}
+
+.vox-botao-flutuante svg { display: block; }

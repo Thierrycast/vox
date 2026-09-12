@@ -185,8 +185,8 @@ impl Reader {
     /// trechos **antes** de a fala começar, para casar cada um com o pedaço do
     /// DOM que vai destacar. Preparar duas vezes seria pior que um round-trip a
     /// mais: com a correção ligada, seriam dois modelos e o dobro da espera.
-    pub async fn prepare(&self, text: &str, normalize: bool) -> String {
-        match self.api.prepare_text(text, normalize).await {
+    pub async fn prepare(&self, text: &str, normalize: bool, narrate_tables: bool) -> String {
+        match self.api.prepare_text(text, normalize, narrate_tables).await {
             Ok(preparado) if !preparado.trim().is_empty() => preparado,
             Ok(_) => {
                 tracing::warn!("preparo devolveu texto vazio; usando o original");
@@ -254,13 +254,14 @@ impl Reader {
         // O estado vai primeiro, e só depois a janela aparece. Na ordem
         // inversa o HUD reaparecia com o último quadro do ditado ainda no DOM —
         // o "Copiado" — até o evento chegar e o player substituir o conteúdo.
-        let (abrir_leitor, com_legenda, normalizar) = {
+        let (abrir_leitor, com_legenda, normalizar, narrar_tabelas) = {
             let state = app.state::<AppState>();
             let settings = state.settings.lock();
             (
                 settings.open_reader_on_read,
                 settings.reading_captions,
                 settings.normalize_before_reading,
+                settings.narrate_tables,
             )
         };
 
@@ -299,7 +300,7 @@ impl Reader {
         let texto = if already_prepared {
             text.clone()
         } else {
-            self.prepare(&text, normalizar).await
+            self.prepare(&text, normalizar, narrar_tabelas).await
         };
 
         // Parar durante o preparo invalida esta leitura.
@@ -322,6 +323,17 @@ impl Reader {
                 .into_iter()
                 .map(|trecho| Segment { text: trecho, audio: None, seconds: 0.0 })
                 .collect();
+        }
+
+        // Os trechos vão para a ponte em **toda** leitura, e não só na que veio
+        // da extensão. Sem isto, uma leitura começada pelo atalho global era
+        // invisível para ela: o texto era falado e a página não destacava nada,
+        // porque a lista do lado de lá continuava vazia.
+        {
+            let queue = self.queue.lock();
+            let trechos: Vec<String> = queue.segments.iter().map(|s| s.text.clone()).collect();
+            drop(queue);
+            app.state::<AppState>().bridge.set_segments(trechos);
         }
 
         // O front desenha o texto inteiro antes de qualquer áudio existir, para
