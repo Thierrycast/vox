@@ -403,7 +403,7 @@ esqueceria em uma delas.
 | Cancelar o ditado | `Ctrl+Shift+X` | descarta sem transcrever |
 | Ler a seleção | `Ctrl+Alt+L` | e pausa/retoma durante a leitura |
 | Pausar e retomar | `Ctrl+Alt+P` | nunca começa uma leitura nova |
-| Parar a leitura | `Ctrl+Alt+K` | |
+| Parar a leitura | `Ctrl+Alt+S` | |
 | Legenda guiada | `Ctrl+Alt+G` | abre e fecha o texto na pílula |
 | Mostrar o widget | `Ctrl+Alt+V` | sem começar nada |
 | Preferências | `Ctrl+Alt+O` | |
@@ -421,6 +421,25 @@ Atalho global é recurso disputado e quem registra primeiro leva — o Vox sobe
 depois do navegador. Uma combinação tomada falha em silêncio, então o que não
 registrar aparece marcado no painel, ao lado do campo que a causou, e no menu da
 bandeja. Campo vazio é escolha: significa "sem atalho".
+
+**Quais estão livres se responde medindo**, não supondo:
+
+```powershell
+pwsh -File scriptstalhos-livres.ps1
+```
+
+Ele pergunta ao Windows com a mesma `RegisterHotKey` que o plugin usa por baixo:
+registra, anota e desregistra na hora, sem deixar nada preso e sem disparar a
+ação de quem já tem a tecla. Foi assim que `Ctrl+Alt+K` saiu do catálogo — estava
+tomado nesta máquina, e o padrão virou `Ctrl+Alt+S`.
+
+Um aviso sobre esse tipo de medição: **rode com o Vox fechado.** Com ele no ar, a
+primeira leitura acusou onze combinações ocupadas, e sete eram dele mesmo — o
+medidor contaminando a medida.
+
+O botão **Aplicar**, na seção de atalhos, solta tudo e registra de novo. Vale
+para a combinação nova passar a valer sem reiniciar, e para tentar outra vez uma
+que estava tomada: a disputa muda no minuto em que o outro programa fecha.
 
 ## Formas de acionar
 
@@ -441,10 +460,11 @@ e por isso a checagem de origem e o token acontecem no servidor, antes de agir.
 ```
 vox/
 ├── assets/sounds/       os quatro .wav, 48 kHz 24-bit
-├── scripts/             atalho de desenvolvimento
+├── scripts/             atalho de desenvolvimento e diagnóstico
 │   ├── vox-dev.ps1      compila se preciso, encerra o antigo e sobe
 │   ├── vox-dev.vbs      abre o launcher sem piscar console
-│   └── instalar-atalho.ps1
+│   ├── instalar-atalho.ps1
+│   └── atalhos-livres.ps1  quais combinações globais estão livres
 ├── src/                 o front — quatro janelas independentes
 │   ├── hud.html         a barra do ditado e a coluna da leitura
 │   ├── reader.html      a janela de leitura, com transporte e destaque

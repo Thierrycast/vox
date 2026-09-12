@@ -348,11 +348,34 @@ let captionWord = -1;
 let captionUserScrolled = false;
 let captionScrollHandle = null;
 
+/* Aplica a cor de destaque escolhida nas preferências.
+ *
+ * O alfa vai no próprio hexadecimal — `#966aff42` — porque é o que funciona sem
+ * `color-mix`, e porque as três variantes derivam de um valor só: uma tabela de
+ * cores por tema seria mais uma coisa para esquecer de atualizar. */
+function aplicarCorDeDestaque(cor) {
+  if (typeof cor !== "string" || !/^#[0-9a-f]{6}$/i.test(cor)) return;
+  const raiz = document.documentElement.style;
+  raiz.setProperty("--accent", cor);
+  raiz.setProperty("--accent-fill", `${cor}42`);
+  raiz.setProperty("--accent-glow", `${cor}42`);
+  raiz.setProperty("--accent-on", `${cor}4d`);
+}
+
 /* A preferência é lida uma vez, na partida: a pílula precisa nascer do tamanho
    certo na primeira leitura, e não crescer depois que ela já apareceu. */
 invoke("get_settings")
-  .then((settings) => { captionsEnabled = Boolean(settings?.reading_captions); })
+  .then((settings) => {
+    captionsEnabled = Boolean(settings?.reading_captions);
+    aplicarCorDeDestaque(settings?.theme_accent);
+  })
   .catch(() => {});
+
+/* O painel grava e avisa. Sem isto, trocar a cor só valeria no próximo início do
+   app — e a pessoa está justamente olhando para o widget quando escolhe. */
+listen("vox://settings-changed", (event) => {
+  aplicarCorDeDestaque(event.payload?.theme_accent);
+});
 
 /* Quebra a frase em palavras com a fração em que cada uma começa e termina.
  *

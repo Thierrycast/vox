@@ -337,16 +337,18 @@ elemento("vocabularyEntrada").addEventListener("keydown", (event) => {
    registro chega junto do campo que a causou. */
 let atalhos = {};
 
-async function montarAtalhos() {
+async function montarAtalhos(catalogoPronto) {
   const caixa = elemento("listaAtalhos");
   caixa.innerHTML = "";
 
-  let catalogo = [];
-  try {
-    catalogo = await invoke("command_catalog");
-  } catch {
-    caixa.textContent = "Não consegui ler o catálogo de comandos.";
-    return;
+  let catalogo = catalogoPronto;
+  if (!catalogo) {
+    try {
+      catalogo = await invoke("command_catalog");
+    } catch {
+      caixa.textContent = "Não consegui ler o catálogo de comandos.";
+      return;
+    }
   }
 
   atalhos = {};
@@ -629,6 +631,31 @@ elemento("copiarToken").addEventListener("click", async () => {
     botao.textContent = "Selecionado";
   }
   setTimeout(() => { botao.textContent = "Copiar"; }, 1600);
+});
+
+/* Aplicar sem reiniciar resolve duas coisas: a combinação nova passa a valer na
+   hora, e o que estava tomado é testado outra vez — a disputa muda quando o
+   outro programa fecha, e antes a única saída era reiniciar o Vox. */
+elemento("reaplicarAtalhos").addEventListener("click", async () => {
+  const botao = elemento("reaplicarAtalhos");
+  botao.textContent = "Aplicando…";
+
+  // Grava antes: o backend registra o que está no disco, não o que está na tela.
+  await gravar();
+
+  try {
+    const catalogo = await invoke("reapply_shortcuts");
+    await montarAtalhos(catalogo);
+    const falhas = catalogo.filter((comando) => comando.failure).length;
+    botao.textContent = falhas === 0
+      ? "Todos no ar"
+      : `${falhas} em conflito`;
+  } catch (erro) {
+    botao.textContent = "Falhou";
+    mostrarFalha(String(erro));
+  }
+
+  setTimeout(() => { botao.textContent = "Aplicar"; }, 2400);
 });
 
 elemento("resetarPosicao").addEventListener("click", async () => {

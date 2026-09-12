@@ -87,7 +87,11 @@ fn get_settings(state: State<'_, AppState>) -> Settings {
 }
 
 #[tauri::command]
-fn save_settings(state: State<'_, AppState>, mut settings: Settings) -> Result<(), String> {
+fn save_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    mut settings: Settings,
+) -> Result<(), String> {
     settings.sanitize();
     settings.save().map_err(|err| err.to_string())?;
 
@@ -97,6 +101,12 @@ fn save_settings(state: State<'_, AppState>, mut settings: Settings) -> Result<(
     if let Some(directory) = &settings.external_sounds_directory {
         state.sounds.load_external_dictation_sounds(directory);
     }
+
+    // As outras janelas precisam saber: a cor de destaque vale para o realce da
+    // palavra na pílula, e quem acabou de escolhê-la está olhando para ela.
+    let _ = app.emit("vox://settings-changed", serde_json::json!({
+        "theme_accent": settings.theme_accent,
+    }));
 
     *state.settings.lock() = settings;
     Ok(())
@@ -179,6 +189,30 @@ async fn rewrite_presets(state: State<'_, AppState>) -> Result<serde_json::Value
 /// junto do campo que a causou.
 #[tauri::command]
 fn command_catalog(state: State<'_, AppState>) -> Vec<serde_json::Value> {
+    catalogo_atual(&state)
+}
+
+/// Aplica os atalhos que estão gravados agora, sem reiniciar o app.
+///
+/// Solta tudo e registra de novo. Isso resolve duas coisas de uma vez: a
+/// combinação nova passa a valer na hora, e o que estava tomado por outro
+/// programa é testado outra vez — a disputa muda quando o outro app fecha, e
+/// antes a única saída era reiniciar o Vox para descobrir.
+#[tauri::command]
+fn reapply_shortcuts(app: AppHandle, state: State<'_, AppState>) -> Vec<serde_json::Value> {
+    if let Err(err) = app.global_shortcut().unregister_all() {
+        tracing::warn!(?err, "não deu para soltar os atalhos antes de registrar de novo");
+    }
+
+    let report = register_shortcuts(&app);
+    let falhas = report.commands.iter().filter(|info| info.failure.is_some()).count();
+    tracing::info!(falhas, "atalhos reaplicados");
+
+    *state.shortcut_report.lock() = report;
+    catalogo_atual(&state)
+}
+
+fn catalogo_atual(state: &AppState) -> Vec<serde_json::Value> {
     let escolhas = state.settings.lock().shortcuts.clone();
     let falhas = state.shortcut_report.lock().clone();
 
@@ -898,6 +932,7 @@ fn main() {
             rewrite_preview,
             rewrite_presets,
             command_catalog,
+            reapply_shortcuts,
             api_base_url,
             settings_path,
             reset_hud_position,

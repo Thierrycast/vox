@@ -29,6 +29,14 @@
   --hud-bg: #17171a;
   --hud-fg: #ffffff;
 
+  /* Cor de destaque, escolhida nas preferências e escrita aqui pelo hud.js.
+     As variantes vêm com o alfa no próprio hexadecimal porque é o que funciona
+     sem depender de `color-mix`, que é recente demais para uma reserva. */
+  --accent: #966aff;
+  --accent-fill: #966aff42;
+  --accent-glow: #966aff42;
+  --accent-on: #966aff4d;
+
   --green: #37d67a;
   --yellow: #f5c451;
   --red: #f4585c;
@@ -521,8 +529,8 @@ body {
   border-radius: 5px;
   /* Translúcido a ponto de o texto continuar sendo o assunto: o realce diz onde
      a voz está, não substitui a palavra. */
-  background-color: rgba(150, 106, 255, .26);
-  box-shadow: 0 0 9px rgba(150, 106, 255, .26);
+  background-color: var(--accent-fill);
+  box-shadow: 0 0 9px var(--accent-glow);
   opacity: 0;
   pointer-events: none;
   transition:
@@ -551,7 +559,7 @@ body {
 .cap-word[data-speaking="true"] { color: #fff; }
 
 .player-btn[data-on="true"] {
-  background: rgba(150, 106, 255, .30);
+  background: var(--accent-on);
   color: var(--hud-fg);
 }
 

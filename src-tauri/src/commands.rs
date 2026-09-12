@@ -18,8 +18,12 @@
 //! Há uma armadilha específica de teclado brasileiro aqui, e ela é o motivo de
 //! as letras serem estas: **no ABNT2, `AltGr` é `Ctrl+Alt`**. Registrar
 //! `Ctrl+Alt+Q` como atalho global rouba o `/` de quem digita, e `Ctrl+Alt+E`
-//! rouba o `€`. As letras deste catálogo (L, V, P, K, G, O) não produzem
+//! rouba o `€`. As letras deste catálogo (L, V, P, S, G, O) não produzem
 //! caractere nenhum com AltGr no ABNT2, então nada é tirado de quem escreve.
+//!
+//! Quais estão livres **nesta** máquina é outra pergunta, e ela se responde
+//! medindo: `scripts/atalhos-livres.ps1` pergunta ao Windows com a mesma API que
+//! o plugin usa. Foi assim que `Ctrl+Alt+K` saiu da lista — estava tomado.
 //!
 //! Atalho global é recurso disputado e quem registra primeiro leva. O Vox sobe
 //! depois do navegador, então uma combinação tomada falha em silêncio — por isso
@@ -101,7 +105,9 @@ impl Command {
             Command::CancelDictation => "Ctrl+Shift+X",
             Command::ReadSelection => "Ctrl+Alt+L",
             Command::TogglePlayback => "Ctrl+Alt+P",
-            Command::StopReading => "Ctrl+Alt+K",
+            // K estava tomado nesta máquina — medido com `scripts/atalhos-livres.ps1`,
+            // que pergunta ao Windows com a mesma API que o plugin usa por baixo.
+            Command::StopReading => "Ctrl+Alt+S",
             Command::ToggleCaptions => "Ctrl+Alt+G",
             Command::ShowWidget => "Ctrl+Alt+V",
             Command::OpenSettings => "Ctrl+Alt+O",
