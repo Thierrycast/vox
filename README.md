@@ -400,6 +400,24 @@ A única exceção é a altura do erro quando ele traz um motivo — o texto pre
 segunda linha, e cortá-lo custaria justamente a informação que decide o que
 fazer.
 
+### Cada papel lembra o próprio lugar
+
+A janela é uma só, mas o ditado (barra) e a leitura (coluna) guardam posições
+separadas: `hud_position_dictation` pelo canto superior esquerdo e
+`hud_position_reading` pela **borda direita**, que não muda quando a legenda
+abre. Antes havia um campo só, e três coisas o misturavam:
+
+- a posição atual passava de um papel para o outro quando a janela já estava
+  visível — uma leitura na tela entregava o lugar dela ao ditado seguinte;
+- o `Moved` que o próprio app causa com `set_position` era gravado como se fosse
+  arraste. Agora `shape_hud` marca uma janela de 450 ms em que esses eventos são
+  ignorados;
+- o painel gravava o `Settings` que tinha carregado ao abrir, com a posição
+  velha. O `save_settings` passou a manter as posições vigentes.
+
+Posição guardada num monitor que não está mais ligado é descartada na hora de
+mostrar, e o widget volta ao padrão do papel em vez de abrir fora da tela.
+
 ## A onda
 
 A referência do Raycast faz poll a 50 ms e desenha o valor cru com uma transição

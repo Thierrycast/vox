@@ -94,6 +94,16 @@ fn save_settings(
     mut settings: Settings,
 ) -> Result<(), String> {
     settings.sanitize();
+
+    // As posições do widget são da janela, não do painel. O painel manda o
+    // `Settings` que carregou ao abrir; arrastar a pílula com ele aberto e depois
+    // mexer em qualquer opção gravava de volta a posição velha.
+    {
+        let vigente = state.settings.lock();
+        settings.hud_position_dictation = vigente.hud_position_dictation;
+        settings.hud_position_reading = vigente.hud_position_reading;
+    }
+
     settings.save().map_err(|err| err.to_string())?;
 
     // Aplica no ato o que muda comportamento agora, sem esperar um restart.
@@ -311,14 +321,37 @@ fn settings_path() -> String {
 fn reset_hud_position(app: AppHandle, state: State<'_, AppState>) {
     {
         let mut settings = state.settings.lock();
-        settings.hud_position = None;
+        settings.hud_position_dictation = None;
+        settings.hud_position_reading = None;
         if let Err(err) = settings.save() {
             tracing::warn!(?err, "não deu para esquecer a posição do widget");
         }
     }
-    // Reaplica a forma atual: sem posição guardada, `shape_hud` volta a calcular
-    // o lugar padrão, e a pílula vai para lá na hora em vez de na próxima vez.
-    dictation::shape_hud(&app, dictation::HudShape::Column);
+
+    // Só reposiciona se a janela estiver na tela: escondida, ela volta ao padrão
+    // sozinha na próxima vez que aparecer. E reposiciona **no papel que está
+    // exercendo** — mandar a barra do ditado para a posição da coluna seria o
+    // mesmo defeito que este comando existe para desfazer.
+    let visivel = app
+        .get_webview_window("hud")
+        .and_then(|janela| janela.is_visible().ok())
+        .unwrap_or(false);
+    if !visivel {
+        return;
+    }
+    let forma = match dictation::current_role() {
+        Some(dictation::HudRole::Dictation) => dictation::HudShape::Bar,
+        Some(dictation::HudRole::Reading) => {
+            if state.settings.lock().reading_captions {
+                dictation::HudShape::ColumnCaptions
+            } else {
+                dictation::HudShape::Column
+            }
+        }
+        None => return,
+    };
+    dictation::forget_role();
+    dictation::shape_hud(&app, forma);
 }
 
 /// Abre o painel de preferências.
@@ -1116,14 +1149,45 @@ fn main() {
         .on_window_event(|window, event| {
             if window.label() == "hud" {
                 if let tauri::WindowEvent::Moved(position) = event {
+                    // Movimento que o próprio app causou não é preferência de
+                    // ninguém. Gravar isso era o que fazia o ditado nascer onde a
+                    // leitura tinha acabado de ser posta.
+                    if dictation::movement_is_ours() {
+                        return;
+                    }
+                    // Janela escondida não é arrastada por ninguém.
+                    if !window.is_visible().unwrap_or(false) {
+                        return;
+                    }
+                    let Some(papel) = dictation::current_role() else { return };
+
                     let scale = window.scale_factor().unwrap_or(1.0);
                     let position = position.to_logical::<f64>(scale);
+                    let largura = window
+                        .outer_size()
+                        .map(|tamanho| tamanho.to_logical::<f64>(scale).width)
+                        .unwrap_or(0.0);
+
+                    let guardar = match papel {
+                        dictation::HudRole::Dictation => {
+                            config::WindowPosition { x: position.x, y: position.y }
+                        }
+                        // A leitura é lembrada pela borda direita, que é o que
+                        // não muda entre a pílula estreita e a aberta.
+                        dictation::HudRole::Reading => {
+                            config::WindowPosition { x: position.x + largura, y: position.y }
+                        }
+                    };
+
                     let app = window.app_handle();
                     let app_state = app.state::<AppState>();
                     let mut settings = app_state.settings.lock();
-                    let saved = config::WindowPosition { x: position.x, y: position.y };
-                    if settings.hud_position != Some(saved) {
-                        settings.hud_position = Some(saved);
+                    let campo = match papel {
+                        dictation::HudRole::Dictation => &mut settings.hud_position_dictation,
+                        dictation::HudRole::Reading => &mut settings.hud_position_reading,
+                    };
+                    if *campo != Some(guardar) {
+                        *campo = Some(guardar);
                         if let Err(error) = settings.save() {
                             tracing::warn!(?error, "não deu para guardar a posição do widget");
                         }

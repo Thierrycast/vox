@@ -13,6 +13,7 @@
 //! O passo 4 é o que tira 100–300 ms do fim: quando o usuário solta o atalho, o
 //! handshake TLS já aconteceu e o upload começa direto.
 
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -507,7 +508,25 @@ pub enum HudShape {
     ColumnCaptions,
 }
 
+/// Para que o widget está sendo usado agora.
+///
+/// A janela é uma só, mas os papéis não se confundem: cada um lembra a própria
+/// posição. Sem essa separação, a barra do ditado nascia onde a coluna da leitura
+/// tinha ficado, e vice-versa.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HudRole {
+    Dictation,
+    Reading,
+}
+
 impl HudShape {
+    pub fn role(self) -> HudRole {
+        match self {
+            HudShape::Bar => HudRole::Dictation,
+            HudShape::Column | HudShape::ColumnCaptions => HudRole::Reading,
+        }
+    }
+
     fn size(self) -> (f64, f64) {
         match self {
             // Folga em volta do desenho: a janela é transparente e a sombra
@@ -526,7 +545,81 @@ impl HudShape {
     }
 }
 
-/// Redimensiona a janela flutuante sem desfazer o lugar que a pessoa escolheu.
+/// O papel que a janela está exercendo agora. Zero é nenhum ainda.
+static PAPEL_ATUAL: AtomicU8 = AtomicU8::new(0);
+
+/// Até quando um `Moved` da janela é consequência de um movimento **nosso**.
+///
+/// O Windows avisa a mudança de posição do mesmo jeito quando a pessoa arrasta e
+/// quando o próprio app chama `set_position`. Sem distinguir, cada troca de forma
+/// era gravada como se tivesse sido um arraste — e o lugar onde a leitura tinha
+/// sido posta virava a preferência do ditado.
+static MOVIMENTO_NOSSO_ATE: std::sync::Mutex<Option<std::time::Instant>> =
+    std::sync::Mutex::new(None);
+
+/// Quanto dura o silêncio depois de um movimento programado. Os eventos chegam
+/// assíncronos, e numa máquina ocupada chegam atrasados; 450 ms cobre os dois sem
+/// engolir um arraste que a pessoa comece logo em seguida.
+const SILENCIO_APOS_MOVER: std::time::Duration = std::time::Duration::from_millis(450);
+
+pub fn current_role() -> Option<HudRole> {
+    match PAPEL_ATUAL.load(Ordering::Relaxed) {
+        1 => Some(HudRole::Dictation),
+        2 => Some(HudRole::Reading),
+        _ => None,
+    }
+}
+
+/// Esquece o papel atual, para a próxima forma não herdar a posição da janela.
+///
+/// Usado ao voltar ao padrão: sem isto, `shape_hud` veria a janela visível no
+/// mesmo papel e manteria exatamente o lugar de onde a pessoa pediu para sair.
+pub fn forget_role() {
+    PAPEL_ATUAL.store(0, Ordering::Relaxed);
+}
+
+fn set_current_role(papel: HudRole) {
+    let valor = match papel {
+        HudRole::Dictation => 1,
+        HudRole::Reading => 2,
+    };
+    PAPEL_ATUAL.store(valor, Ordering::Relaxed);
+}
+
+fn marcar_movimento_programado() {
+    if let Ok(mut ate) = MOVIMENTO_NOSSO_ATE.lock() {
+        *ate = Some(std::time::Instant::now() + SILENCIO_APOS_MOVER);
+    }
+}
+
+/// O `Moved` que acabou de chegar foi o app que causou?
+pub fn movement_is_ours() -> bool {
+    MOVIMENTO_NOSSO_ATE
+        .lock()
+        .ok()
+        .and_then(|ate| *ate)
+        .is_some_and(|limite| std::time::Instant::now() < limite)
+}
+
+/// O ponto está dentro de algum monitor ligado agora?
+///
+/// Posição guardada num monitor que foi desconectado deixaria o widget num lugar
+/// que nenhuma tela mostra — aberto, respondendo, e impossível de achar. Nesse
+/// caso vale mais o lugar padrão do que a lembrança.
+fn ponto_visivel(window: &tauri::WebviewWindow, x: f64, y: f64) -> bool {
+    let Ok(monitores) = window.available_monitors() else { return true };
+    if monitores.is_empty() {
+        return true;
+    }
+    monitores.iter().any(|monitor| {
+        let escala = monitor.scale_factor();
+        let origem = monitor.position().to_logical::<f64>(escala);
+        let tamanho = monitor.size().to_logical::<f64>(escala);
+        x >= origem.x && x < origem.x + tamanho.width && y >= origem.y && y < origem.y + tamanho.height
+    })
+}
+
+/// Redimensiona e reposiciona a janela flutuante.
 ///
 /// A barra do ditado fica no centro inferior, com folga para não encostar na
 /// barra de tarefas: durante o ditado o olho não está no texto, e o centro é
@@ -572,29 +665,57 @@ pub fn shape_hud(app: &AppHandle, shape: HudShape) {
         .outer_position()
         .ok()
         .map(|position| position.to_logical::<f64>(scale));
-    let saved_position = app.state::<crate::AppState>().settings.lock().hud_position;
+    let papel = shape.role();
+    let mesmo_papel = current_role() == Some(papel);
+    let visivel = window.is_visible().unwrap_or(false);
 
-    // A primeira forma usa a posição padrão. Depois disso, a posição atual é
-    // autoridade: o HUD é arrastável e abrir/fechar a legenda não pode levar a
-    // pílula de volta para o ponto de spawn. Na expansão, preservamos a borda
-    // direita para os controles ficarem sob o cursor; nas demais mudanças,
-    // preservamos o canto superior esquerdo.
-    let (x, y) = match (window.is_visible().unwrap_or(false), current_size, current_position) {
+    let guardada = {
+        let state = app.state::<crate::AppState>();
+        let settings = state.settings.lock();
+        match papel {
+            HudRole::Dictation => settings.hud_position_dictation,
+            HudRole::Reading => settings.hud_position_reading,
+        }
+    };
+
+    /* De onde vem a posição, em ordem.
+     *
+     * 1. **A janela já está na tela, no mesmo papel** — a posição atual manda.
+     *    É o caso de abrir e fechar a legenda: a pílula não pode voltar ao lugar
+     *    de origem só porque mudou de largura. A borda direita fica parada,
+     *    porque é para a esquerda que a legenda cresce.
+     *
+     * 2. **Mudou de papel, ou estava escondida** — a posição guardada **daquele
+     *    papel**. A regra antiga olhava só "está visível?", e uma leitura na
+     *    tela passava a posição dela para o ditado que começasse em seguida.
+     *
+     * 3. **Nunca foi arrastado para lá**, ou o monitor sumiu — o padrão do papel. */
+    let (x, y) = match (visivel && mesmo_papel, current_size, current_position) {
         (true, Some(size), Some(position)) if (width - size.width).abs() > f64::EPSILON => {
             (position.x + size.width - width, position.y)
         }
         (true, _, Some(position)) => (position.x, position.y),
-        (_, _, _) if saved_position.is_some() => {
-            let position = saved_position.expect("posição checada acima");
-            (position.x, position.y)
+        _ => {
+            let lembrada = guardada.and_then(|posicao| {
+                let (x, y) = match papel {
+                    HudRole::Dictation => (posicao.x, posicao.y),
+                    // Guardada pela borda direita: vale para a pílula estreita e
+                    // para a aberta.
+                    HudRole::Reading => (posicao.x - width, posicao.y),
+                };
+                // Confere o meio da janela, e não o canto: um canto um pixel fora
+                // da tela ainda deixa o widget inteiro à vista.
+                ponto_visivel(&window, x + width / 2.0, y + height / 2.0).then_some((x, y))
+            });
+
+            lembrada.unwrap_or_else(|| match papel {
+                HudRole::Dictation => ((screen.width - width) / 2.0, screen.height - height - 96.0),
+                HudRole::Reading => (screen.width - width - 12.0, (screen.height - height) / 2.0),
+            })
         }
-        _ => match shape {
-            HudShape::Bar => ((screen.width - width) / 2.0, screen.height - height - 96.0),
-            HudShape::Column | HudShape::ColumnCaptions => {
-                (screen.width - width - 12.0, (screen.height - height) / 2.0)
-            }
-        },
     };
+
+    set_current_role(papel);
     tracing::debug!(
         ?shape, largura = width, altura = height,
         tela_l = screen.width, tela_a = screen.height, escala = scale,
@@ -613,6 +734,10 @@ pub fn shape_hud(app: &AppHandle, shape: HudShape) {
      * ocupando espaço que ela não deveria. Encolhendo, mover; crescendo,
      * redimensionar. */
     let atual = current_size.map(|size| size.width).unwrap_or(width);
+
+    // Tudo o que o sistema avisar daqui a pouco é consequência desta chamada, e
+    // não um arraste. Ver `movement_is_ours`.
+    marcar_movimento_programado();
 
     if width <= atual {
         let _ = window.set_position(tauri::LogicalPosition::new(x, y));

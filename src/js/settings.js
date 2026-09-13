@@ -243,7 +243,7 @@ function desenhar(settings) {
   desenharIntensidade(settings.stt_rewrite_intensity ?? 2);
   desenharPresets(settings.stt_rewrite_preset);
   aplicarCor(settings.theme_accent || CORES[0].id);
-  desenharPosicao(settings.hud_position);
+  desenharPosicao(settings.hud_position_dictation, settings.hud_position_reading);
 
   atualizarDependencias();
   sincronizarSelects();
@@ -258,16 +258,27 @@ function atualizarDependencias() {
   elemento("linhaTecla").hidden = modo === "disabled";
 }
 
-function desenharPosicao(posicao) {
+function desenharPosicao(ditado, leitura) {
   const alvo = elemento("posicaoAtual");
-  if (!posicao) {
+  if (!ditado && !leitura) {
     alvo.textContent =
       "Nunca foi arrastado: aparece no centro inferior no ditado e na borda direita na leitura.";
     return;
   }
+
+  /* Cada papel lembra o próprio lugar: arrastar a barra do ditado não move a
+     pílula da leitura. A leitura é guardada pela borda direita, que é o que não
+     muda quando a legenda abre. */
+  const ditadoTexto = ditado
+    ? `ditado em x ${Math.round(ditado.x)}, y ${Math.round(ditado.y)}`
+    : "ditado no lugar padrão";
+  const leituraTexto = leitura
+    ? `leitura com a borda direita em x ${Math.round(leitura.x)}, y ${Math.round(leitura.y)}`
+    : "leitura no lugar padrão";
+
   alvo.textContent =
-    `Guardado em x ${Math.round(posicao.x)}, y ${Math.round(posicao.y)}. ` +
-    "Arraste a pílula para mudar — o lugar novo é gravado sozinho.";
+    `Guardado: ${ditadoTexto}; ${leituraTexto}. ` +
+    "Arraste a pílula para mudar — cada modo grava o seu sozinho.";
 }
 
 /* --------------------------------------------------------------- vocabulário */
@@ -682,9 +693,10 @@ elemento("reaplicarAtalhos").addEventListener("click", async () => {
 });
 
 elemento("resetarPosicao").addEventListener("click", async () => {
-  atual = { ...atual, hud_position: null };
-  await gravar();
-  invoke("reset_hud_position").catch(() => {});
+  // Quem esquece as posições é o backend: o `gravar` do painel não as toca.
+  await invoke("reset_hud_position").catch(() => {});
+  atual = { ...atual, hud_position_dictation: null, hud_position_reading: null };
+  desenharPosicao(null, null);
 });
 
 /* -------------------------------------------------------------------- listas */

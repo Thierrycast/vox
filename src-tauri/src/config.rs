@@ -172,8 +172,22 @@ pub struct Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shortcut_show_widget: Option<String>,
 
-    /// Último local para onde a pessoa arrastou o widget.
-    pub hud_position: Option<WindowPosition>,
+    /// Onde a pessoa deixou a barra do ditado: o canto superior esquerdo.
+    ///
+    /// Uma posição por papel, e não uma para o widget inteiro. A barra do ditado
+    /// e a coluna da leitura são a mesma janela com formas e usos diferentes, e
+    /// quem arrasta uma para o canto da tela não quer a outra indo junto — era
+    /// exatamente o que acontecia com uma posição só: a gravação nascia onde a
+    /// leitura tinha ficado.
+    pub hud_position_dictation: Option<WindowPosition>,
+
+    /// Onde a pessoa deixou a coluna da leitura: o canto superior **direito**.
+    ///
+    /// Direito, e não esquerdo, porque a legenda cresce para a esquerda. A borda
+    /// direita é o que fica parado entre a pílula estreita e a aberta, e é ela
+    /// que precisa ser lembrada para os controles aparecerem onde a pessoa os
+    /// deixou, com ou sem legenda.
+    pub hud_position_reading: Option<WindowPosition>,
 
     // --- geral ---
     pub sounds_enabled: bool,
@@ -250,7 +264,8 @@ impl Default for Settings {
             shortcut_read: None,
             shortcut_show_widget: None,
 
-            hud_position: None,
+            hud_position_dictation: None,
+            hud_position_reading: None,
 
             sounds_enabled: true,
             sounds_volume: 1.0,
@@ -338,10 +353,16 @@ impl Settings {
         if !valida {
             self.theme_accent = "#966aff".into();
         }
-        if self.hud_position.is_some_and(|position| {
-            !position.x.is_finite() || !position.y.is_finite()
-        }) {
-            self.hud_position = None;
+        // Coordenada que não é número deixaria o widget num lugar que nenhum
+        // monitor mostra. Negativa é válida — monitor à esquerda do principal.
+        let invalida = |posicao: &Option<WindowPosition>| {
+            posicao.is_some_and(|valor| !valor.x.is_finite() || !valor.y.is_finite())
+        };
+        if invalida(&self.hud_position_dictation) {
+            self.hud_position_dictation = None;
+        }
+        if invalida(&self.hud_position_reading) {
+            self.hud_position_reading = None;
         }
 
         self.vocabulary.retain(|term| {
@@ -536,11 +557,17 @@ mod tests {
     #[test]
     fn descarta_posicao_de_widget_invalida() {
         let mut settings = Settings {
-            hud_position: Some(WindowPosition { x: f64::NAN, y: 24.0 }),
+            hud_position_dictation: Some(WindowPosition { x: f64::NAN, y: 24.0 }),
+            hud_position_reading: Some(WindowPosition { x: -1920.0, y: 300.0 }),
             ..Default::default()
         };
         settings.sanitize();
-        assert_eq!(settings.hud_position, None);
+        assert_eq!(settings.hud_position_dictation, None);
+        // Negativa é monitor à esquerda do principal, e precisa sobreviver.
+        assert_eq!(
+            settings.hud_position_reading,
+            Some(WindowPosition { x: -1920.0, y: 300.0 })
+        );
     }
 }
 
