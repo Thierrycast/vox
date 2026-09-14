@@ -47,6 +47,7 @@ if (!window.__TAURI__) {
 }
 
 const { invoke } = window.__TAURI__.core;
+const { getCurrentWindow } = window.__TAURI__.window;
 
 const elemento = (id) => document.getElementById(id);
 
@@ -704,6 +705,29 @@ elemento("resetarPosicao").addEventListener("click", async () => {
 elemento("reiniciarVox").addEventListener("click", () => {
   invoke("restart_app").catch((erro) => mostrarFalha(String(erro)));
 });
+
+/* Sem moldura nativa, a própria janela cuida de minimizar, maximizar e
+   fechar. Fechar aqui é só esconder — o backend já intercepta o pedido
+   (`CloseRequested`) e devolve a janela para a bandeja em vez de destruí-la. */
+const janela = getCurrentWindow();
+
+elemento("janelaMinimizar").addEventListener("click", () => janela.minimize());
+elemento("janelaFechar").addEventListener("click", () => janela.close());
+
+const botaoMaximizar = elemento("janelaMaximizar");
+async function atualizarBotaoMaximizar() {
+  const maximizada = await janela.isMaximized();
+  botaoMaximizar.dataset.maximizada = String(maximizada);
+  const rotulo = maximizada ? "Restaurar tamanho" : "Maximizar";
+  botaoMaximizar.setAttribute("aria-label", rotulo);
+  botaoMaximizar.title = rotulo;
+}
+botaoMaximizar.addEventListener("click", async () => {
+  await janela.toggleMaximize();
+  atualizarBotaoMaximizar();
+});
+janela.onResized(atualizarBotaoMaximizar);
+atualizarBotaoMaximizar();
 
 /* -------------------------------------------------------------------- listas */
 

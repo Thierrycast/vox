@@ -60,27 +60,112 @@ html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: var(--bg);
+  /* A janela é transparente de verdade agora — quem pinta o fundo é a
+     `.janela` por dentro, não o body. Sem isto o WebView2 devolve preto
+     opaco no lugar do que estiver atrás. */
+  background: transparent;
   color: var(--fg);
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 13.5px;
   -webkit-font-smoothing: antialiased;
 }
 
+/* ----------------------------------------------------------- janela e vidro
+ *
+ * A pílula flutuante é a cara do Vox; esta janela era a única coisa no app com
+ * moldura branca do Windows e fundo chapado. Agora ela é a mesma linguagem: um
+ * painel translúcido com cantos arredondados e destaque na borda, só que do
+ * tamanho de um aplicativo em vez de um widget.
+ *
+ * Sem moldura nativa, a barra de título e os botões de fechar/minimizar são
+ * nossos — ver `.titulo` mais abaixo. */
+.janela {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  border-radius: var(--raio-g);
+  overflow: hidden;
+  background-color: #0e0e11;
+  background-color: rgb(from var(--bg) r g b / 92%);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .5);
+}
+
+/* O destaque na borda é um pseudo-elemento por cima de tudo, e não uma borda
+   comum: uma borda de verdade somaria largura e empurraria o conteúdo 1px,
+   e um box-shadow inset direto na `.janela` ficaria atrás do cabeçalho opaco.
+   Isto sempre fica por cima, do mesmo jeito que a pílula flutuante faz. */
+.janela::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 .5px 0 0 rgba(255, 255, 255, .09),
+    inset 0 0 0 1px rgba(255, 255, 255, .09);
+}
+
+.titulo {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  height: 34px;
+  padding: 0 8px;
+  /* A faixa inteira arrasta a janela — é a barra de título que sumiu junto
+     com a moldura. Os botões cancelam isso individualmente. */
+  -webkit-app-region: drag;
+}
+
+.titulo-controles {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+
+.titulo-btn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-suave);
+  cursor: pointer;
+  transition: background-color .15s var(--suave), color .15s var(--suave);
+}
+.titulo-btn svg { width: 11px; height: 11px; }
+.titulo-btn:hover { background: rgba(255, 255, 255, .09); color: var(--fg); }
+.titulo-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.titulo-btn--fechar:hover { background: var(--vermelho); color: #fff; }
+
+/* Maximizado e não-maximizado usam ícones diferentes; só um dos dois aparece
+   por vez, trocados pelo `data-maximizada` que o JS mantém. */
+.icone-restaurar { display: none; }
+#janelaMaximizar[data-maximizada="true"] .icone-maximizar { display: none; }
+#janelaMaximizar[data-maximizada="true"] .icone-restaurar { display: block; }
+
 /* --------------------------------------------------------------- estrutura */
 
 .app {
   display: grid;
   grid-template-columns: 216px 1fr;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
 }
 
 .nav {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 18px 12px 12px;
-  background: var(--surface);
+  padding: 10px 12px 12px;
+  /* Um tom só um pouco mais escuro que o vidro da `.janela` — o suficiente
+     para separar a coluna sem virar mais uma superfície opaca por cima da
+     translúcida. */
+  background: rgba(0, 0, 0, .12);
   border-right: 1px solid var(--linha);
 }
 
@@ -148,7 +233,6 @@ html, body {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: var(--bg);
 }
 
 .cabecalho {

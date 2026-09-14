@@ -7,7 +7,26 @@
 <link rel="stylesheet" href="css/settings.css">
 </head>
 <body>
-<div class="app">
+<div class="janela">
+
+  <!-- Sem moldura do Windows, a janela precisa da própria faixa de arrasto e
+       dos próprios botões — o sistema não dá mais nenhum dos dois de graça. -->
+  <header class="titulo">
+    <div class="titulo-controles">
+      <button class="titulo-btn" type="button" id="janelaMinimizar" aria-label="Minimizar" title="Minimizar">
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2.5 6h7"/></svg>
+      </button>
+      <button class="titulo-btn" type="button" id="janelaMaximizar" aria-label="Maximizar" title="Maximizar">
+        <svg class="icone-maximizar" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="2.5" width="7" height="7" rx="1"/></svg>
+        <svg class="icone-restaurar" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="4" y="1.5" width="6.5" height="6.5" rx="1"/><path d="M7.5 4H2.5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1V7.5"/></svg>
+      </button>
+      <button class="titulo-btn titulo-btn--fechar" type="button" id="janelaFechar" aria-label="Fechar" title="Fechar">
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2.75 2.75l6.5 6.5M9.25 2.75l-6.5 6.5"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="app">
 
   <!-- A navegação é fixa: com nove seções, rolar uma coluna única faria a
        pessoa procurar onde o assunto muda. -->
@@ -478,6 +497,8 @@
 
     </div>
   </main>
+  </div>
+
 </div>
 
 <script type="module" src="js/settings.js"></script>
