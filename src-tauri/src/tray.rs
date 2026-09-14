@@ -52,6 +52,11 @@ pub fn build(app: &AppHandle, report: &ShortcutReport) -> tauri::Result<()> {
     // e o JSON cobre o resto — inclusive copiar o token da ponte.
     let config = MenuItem::with_id(
         app, "abrir_config", "Abrir o arquivo de preferências", true, None::<&str>)?;
+    // Um reinício rápido resolve boa parte dos bugs de estado (widget preso,
+    // atalho que parou de responder) sem precisar caçar o processo no
+    // Gerenciador de Tarefas para depois abrir o app de novo à mão.
+    let reiniciar = MenuItem::with_id(
+        app, "reiniciar", "Reiniciar o Vox", true, None::<&str>)?;
     let sair = MenuItem::with_id(app, "sair", "Sair do Vox", true, None::<&str>)?;
 
     // Os atalhos aparecem como itens desabilitados: servem de lembrete, e é
@@ -80,7 +85,8 @@ pub fn build(app: &AppHandle, report: &ShortcutReport) -> tauri::Result<()> {
             &ativo, &no_boot, &separador,
             &ajuda, &separador,
             &preferencias, &ler, &leitor, &separador,
-            &vozes, &config, &separador, &sair,
+            &vozes, &config, &separador,
+            &reiniciar, &sair,
         ],
     )?;
 
@@ -168,6 +174,10 @@ fn responder_menu(app: &AppHandle, id: &str) {
                 settings.start_with_windows = !atual;
                 let _ = settings.save();
             }
+        }
+        "reiniciar" => {
+            tracing::info!("reiniciando pelo menu da bandeja");
+            app.restart();
         }
         "sair" => {
             tracing::info!("saindo pelo menu da bandeja");

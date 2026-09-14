@@ -373,6 +373,17 @@ fn show_floating_widget(app: AppHandle) {
     dictation::show_idle_hud(&app);
 }
 
+/// Reinicia o processo do Vox.
+///
+/// Mesmo caminho do item "Reiniciar" da bandeja — existe aqui para o painel de
+/// preferências oferecer o mesmo botão sem precisar sair da UI e ir até o
+/// ícone do sistema.
+#[tauri::command]
+fn restart_app(app: AppHandle) {
+    tracing::info!("reiniciando pelo painel de preferências");
+    app.restart();
+}
+
 /// A bandeja alterna pelo mesmo caminho do painel.
 pub fn alternar_servico(app: &AppHandle, enabled: bool) {
     {
@@ -1077,6 +1088,7 @@ fn main() {
             settings_path,
             reset_hud_position,
             show_floating_widget,
+            restart_app,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

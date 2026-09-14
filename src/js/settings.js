@@ -699,6 +699,12 @@ elemento("resetarPosicao").addEventListener("click", async () => {
   desenharPosicao(null, null);
 });
 
+/* O processo derruba a própria janela ao reiniciar — não há resposta do
+   `invoke` para esperar, então o texto do botão nem chega a mudar de volta. */
+elemento("reiniciarVox").addEventListener("click", () => {
+  invoke("restart_app").catch((erro) => mostrarFalha(String(erro)));
+});
+
 /* -------------------------------------------------------------------- listas */
 
 function opcao(valor, texto) {
