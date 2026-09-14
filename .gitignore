@@ -16,3 +16,6 @@ hud-captura.png
 
 # Gerado pelo tauri-build a cada compilacao.
 /src-tauri/gen/schemas
+
+# Índice local do CodeGraph — não descreve o projeto, descreve uma máquina.
+/.codegraph
