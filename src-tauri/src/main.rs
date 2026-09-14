@@ -367,9 +367,37 @@ fn open_settings(app: AppHandle) {
     show_settings(&app);
 }
 
-/// Mostra o widget em repouso, sem iniciar ditado ou leitura.
+/// Mostra o widget em repouso, sem iniciar ditado ou leitura — ou esconde,
+/// se ele já estava assim. É um alternador, e não um "sempre mostrar": o
+/// mesmo atalho que traz o widget à tela precisa ser o que tira, senão ele
+/// fica preso lá sem nenhuma forma de fechar.
+///
+/// Só alterna quando não há nada acontecendo de verdade. Com um ditado ou
+/// uma leitura em curso, o widget já está na tela por um motivo — apertar o
+/// atalho de novo reafirma que ele apareça, mas não o esconde por baixo do
+/// que está em andamento.
 #[tauri::command]
-fn show_floating_widget(app: AppHandle) {
+fn show_floating_widget(app: AppHandle, state: State<'_, AppState>) {
+    let ocupado = state.dictation.session().lock().phase() != dictation::Phase::Idle
+        || matches!(
+            state.reader.state(),
+            reading::ReadingState::Generating
+                | reading::ReadingState::Playing
+                | reading::ReadingState::Paused
+        );
+
+    if !ocupado {
+        let ocioso_visivel = app
+            .get_webview_window("hud")
+            .and_then(|janela| janela.is_visible().ok())
+            .unwrap_or(false)
+            && dictation::current_role() == Some(dictation::HudRole::Dictation);
+        if ocioso_visivel {
+            dictation::hide_hud(&app, dictation::HudRole::Dictation);
+            return;
+        }
+    }
+
     dictation::show_idle_hud(&app);
 }
 
