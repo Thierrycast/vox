@@ -9,6 +9,7 @@ mod commands;
 mod config;
 mod dictation;
 mod paste;
+mod presence;
 mod reading;
 mod sounds;
 mod stt_stream;
@@ -80,6 +81,12 @@ fn hud_timings() -> serde_json::Value {
         "barsNormal": dictation::BARS_NORMAL,
         "barsPushToTalk": dictation::BARS_PUSH_TO_TALK,
     })
+}
+
+/// O widget pintou um quadro depois de aparecer. Ver `presence`.
+#[tauri::command]
+fn hud_presence(request: u64) {
+    presence::confirm(request);
 }
 
 #[tauri::command]
@@ -843,9 +850,11 @@ async fn toggle_dictation(app: AppHandle) {
         if let Err(err) = state.dictation.deliver(app.clone(), settings, recording).await {
             tracing::error!(?err, "ditado falhou");
         }
-        // Deixa a mensagem na tela pelo tempo que o Raycast usa, depois some.
+        // Deixa a mensagem na tela pelo tempo que o Raycast usa, depois some —
+        // a não ser que o widget tenha sido pedido de novo nesse meio-tempo.
+        let epoch = dictation::hud_epoch();
         tokio::time::sleep(std::time::Duration::from_millis(dictation::SUCCESS_HOLD_MS)).await;
-        dictation::hide_hud(&app);
+        dictation::hide_hud_since(&app, dictation::HudRole::Dictation, epoch);
         dictation::hide_live_window(&app);
         return;
     }
@@ -1040,6 +1049,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             audio_levels,
             hud_timings,
+            hud_presence,
             get_settings,
             save_settings,
             list_input_devices,
@@ -1101,7 +1111,7 @@ fn main() {
                 // Nasce escondido: o HUD so aparece quando ha o que mostrar.
                 // Mesmo escondida a webview navega e carrega o front, entao o
                 // primeiro ditado nao paga o custo de carregar a pagina.
-                let _ = hud.hide();
+                presence::conceal(&hud);
             }
 
             // A preferência é a intenção; a chave do registro é o estado. Elas

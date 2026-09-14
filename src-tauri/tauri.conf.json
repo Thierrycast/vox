@@ -11,6 +11,7 @@
     "windows": [
       {
         "label": "hud",
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion",
         "url": "hud.html",
         "title": "Vox",
         "width": 260,
@@ -31,6 +32,7 @@
       },
       {
         "label": "reader",
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion",
         "url": "reader.html",
         "title": "Leitura",
         "width": 720,
@@ -43,6 +45,7 @@
       },
       {
         "label": "live",
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion",
         "url": "live.html",
         "title": "Transcricao ao vivo",
         "width": 360,
@@ -59,6 +62,7 @@
       },
       {
         "label": "settings",
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion",
         "url": "settings.html",
         "title": "Vox",
         "width": 980,

@@ -150,9 +150,7 @@ impl Reader {
         queue.cursor = 0;
         queue.state = Some(ReadingState::Idle);
         drop(queue);
-        if let Some(hud) = app.get_webview_window("hud") {
-            let _ = hud.hide();
-        }
+        crate::dictation::hide_hud(app, crate::dictation::HudRole::Reading);
         emit(app, ReadingState::Idle, None);
     }
 
@@ -274,7 +272,7 @@ impl Reader {
             crate::dictation::HudShape::Column
         });
         if let Some(hud) = app.get_webview_window("hud") {
-            let _ = hud.show();
+            let _ = crate::presence::reveal(&hud);
         }
 
         // A janela já existe escondida desde a partida; mostrar custa um quadro.

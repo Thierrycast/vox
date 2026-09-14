@@ -13,7 +13,7 @@
 //! O passo 4 é o que tira 100–300 ms do fim: quando o usuário solta o atalho, o
 //! handshake TLS já aconteceu e o upload começa direto.
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -328,7 +328,7 @@ impl Dictation {
             stream.abort();
         }
         self.reset();
-        hide_hud(app);
+        hide_hud(app, HudRole::Dictation);
         hide_live_window(app);
     }
 
@@ -548,6 +548,19 @@ impl HudShape {
 /// O papel que a janela está exercendo agora. Zero é nenhum ainda.
 static PAPEL_ATUAL: AtomicU8 = AtomicU8::new(0);
 
+/// Conta cada vez que o widget recebe uma forma — ou seja, cada vez que alguém o
+/// pediu para alguma coisa.
+///
+/// Serve a quem agenda esconder o widget para depois. O ditado mostra o
+/// "Copiado" e esconde dois segundos mais tarde; se nesse intervalo começou uma
+/// leitura ou outro ditado, esconder derrubaria o widget de quem acabou de
+/// chegar, e o Vox seguiria trabalhando sem nada na tela.
+static HUD_EPOCH: AtomicU64 = AtomicU64::new(0);
+
+pub fn hud_epoch() -> u64 {
+    HUD_EPOCH.load(Ordering::Relaxed)
+}
+
 /// Até quando um `Moved` da janela é consequência de um movimento **nosso**.
 ///
 /// O Windows avisa a mudança de posição do mesmo jeito quando a pessoa arrasta e
@@ -639,19 +652,33 @@ pub fn shape_hud(app: &AppHandle, shape: HudShape) {
     // não estar. Reafirmar é barato e idempotente.
     let _ = window.set_always_on_top(true);
 
-    // Janela escondida nem sempre tem monitor associado no Windows. Quando isso
-    // acontece o HUD fica onde estava — o que já pareceu "o HUD não abriu",
-    // sendo que ele abriu fora da vista.
+    // Janela escondida nem sempre tem monitor associado no Windows — e é
+    // exatamente aí que a topologia de telas costuma ter mudado desde a última
+    // vez que a janela apareceu (o notebook foi desligado, um monitor saiu da
+    // docking). Ficar na posição anterior era o bug: essa posição pertence a um
+    // monitor que talvez nem exista mais, e o HUD "sumia" — abria fora da vista
+    // de qualquer tela ligada. Cair para o monitor principal, ou para o primeiro
+    // disponível, garante que ele sempre reapareça em algum lugar visível.
     let monitor = match window.current_monitor() {
         Ok(Some(monitor)) => monitor,
         outro => {
             tracing::warn!(
                 ?outro,
-                "sem monitor para posicionar o HUD; ele fica na posição anterior"
+                "sem monitor para a posição atual do HUD; caindo para o monitor principal"
             );
-            // Sem para onde posicionar, ao menos o tamanho é aplicado.
-            let _ = window.set_size(tauri::LogicalSize::new(width, height));
-            return;
+            match window.primary_monitor() {
+                Ok(Some(monitor)) => monitor,
+                _ => match window.available_monitors().ok().and_then(|monitores| monitores.into_iter().next()) {
+                    Some(monitor) => monitor,
+                    None => {
+                        // Sem nenhum monitor detectável, não há para onde
+                        // posicionar — ao menos o tamanho é aplicado.
+                        tracing::warn!("nenhum monitor disponível para posicionar o HUD");
+                        let _ = window.set_size(tauri::LogicalSize::new(width, height));
+                        return;
+                    }
+                },
+            }
         }
     };
     let scale = monitor.scale_factor();
@@ -716,6 +743,7 @@ pub fn shape_hud(app: &AppHandle, shape: HudShape) {
     };
 
     set_current_role(papel);
+    HUD_EPOCH.fetch_add(1, Ordering::Relaxed);
     tracing::debug!(
         ?shape, largura = width, altura = height,
         tela_l = screen.width, tela_a = screen.height, escala = scale,
@@ -758,7 +786,7 @@ pub fn show_hud(app: &AppHandle, push_to_talk: bool) {
         "state": "recording",
         "pushToTalk": push_to_talk,
     }));
-    if let Err(err) = window.show() {
+    if let Err(err) = crate::presence::reveal(&window) {
         tracing::error!(?err, "não deu para mostrar o HUD");
         return;
     }
@@ -781,15 +809,30 @@ pub fn show_idle_hud(app: &AppHandle) {
     };
     shape_hud(app, HudShape::Bar);
     let _ = app.emit("vox://hud", serde_json::json!({ "state": "idle" }));
-    if let Err(error) = window.show() {
+    if let Err(error) = crate::presence::reveal(&window) {
         tracing::error!(?error, "não deu para mostrar o HUD em repouso");
     }
 }
 
-pub fn hide_hud(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("hud") {
-        let _ = window.hide();
+/// Esconde o widget se ele ainda estiver no papel de quem pede.
+///
+/// Cancelar um ditado não pode tirar da tela a pílula de uma leitura em curso, e
+/// parar a leitura não pode derrubar a barra de quem está ditando.
+pub fn hide_hud(app: &AppHandle, role: HudRole) {
+    if current_role().is_some_and(|atual| atual != role) {
+        return;
     }
+    if let Some(window) = app.get_webview_window("hud") {
+        crate::presence::conceal(&window);
+    }
+}
+
+/// Esconde o widget só se ninguém o pediu de novo desde `epoch`.
+pub fn hide_hud_since(app: &AppHandle, role: HudRole, epoch: u64) {
+    if hud_epoch() != epoch {
+        return;
+    }
+    hide_hud(app, role);
 }
 
 /// Mostra a janelinha do texto ao vivo, se a preferência estiver ligada.
@@ -801,7 +844,7 @@ pub fn hide_hud(app: &AppHandle) {
 pub fn show_live_window(app: &AppHandle, ligado: bool) {
     let Some(window) = app.get_webview_window("live") else { return };
     if !ligado {
-        let _ = window.hide();
+        crate::presence::conceal(&window);
         return;
     }
 
@@ -817,12 +860,12 @@ pub fn show_live_window(app: &AppHandle, ligado: bool) {
             24.0,
         ));
     }
-    let _ = window.show();
+    let _ = crate::presence::reveal(&window);
 }
 
 pub fn hide_live_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("live") {
-        let _ = window.hide();
+        crate::presence::conceal(&window);
     }
 }
 

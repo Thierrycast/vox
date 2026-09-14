@@ -900,6 +900,18 @@ player.addEventListener("keydown", (event) => {
   emit("vox://player-command", { action: "seek-index", index: Number(caption.dataset.index) });
 });
 
+/* O backend pergunta, a cada vez que mostra o widget, se ele pintou. A resposta
+   sai de dentro de um quadro de animação de propósito: página que o WebView2
+   deixou de compor ainda roda JavaScript, mas não ganha quadro — então resposta
+   que chega prova que houve pintura. */
+listen("vox://presence-check", (event) => {
+  const request = event.payload?.request;
+  if (typeof request !== "number") return;
+  requestAnimationFrame(() => {
+    invoke("hud_presence", { request }).catch(() => {});
+  });
+});
+
 // Um widget sem moldura não é uma aba comum: duplo clique na área arrastável
 // nunca pode virar maximizar/snap do Windows.
 window.addEventListener("dblclick", (event) => { event.preventDefault(); });

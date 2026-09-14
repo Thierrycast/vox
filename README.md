@@ -418,6 +418,37 @@ abre. Antes havia um campo só, e três coisas o misturavam:
 Posição guardada num monitor que não está mais ligado é descartada na hora de
 mostrar, e o widget volta ao padrão do papel em vez de abrir fora da tela.
 
+### O widget que sumia com o Vox funcionando
+
+Sintoma: o ditado colava e a leitura falava, mas nenhum widget aparecia. Medido
+com ele sumido, a janela estava visível, por cima de tudo, no lugar e no tamanho
+certos, e mesmo assim a captura daquele retângulo vinha vazia. A página estava
+viva; o WebView2 é que tinha parado de pintar.
+
+O Tauri esconde a janela nativa sem avisar o controlador do WebView2, e quem
+decide se a página desenha é a detecção de oclusão do Chromium. No bloqueio de
+tela e na suspensão ela marca tudo como encoberto, e uma janela que estava
+escondida nessa hora pode voltar sem ser reavaliada. O log do sistema mostrava
+oito ciclos de bloqueio e tela apagada desde a partida do Vox.
+
+A correção fica em `src-tauri/src/presence.rs`:
+
+- `CalculateNativeWinOcclusion` desligado em todas as janelas
+  (`additionalBrowserArgs` no `tauri.conf.json` — o valor precisa ser idêntico
+  nas quatro, porque elas dividem o mesmo ambiente do WebView2);
+- `reveal`/`conceal` mostram e escondem o HUD e o texto ao vivo avisando o
+  controlador (`SetIsVisible`);
+- a cada vez que o HUD aparece, a página responde de dentro de um
+  `requestAnimationFrame`. Sem resposta em 900 ms, o log registra
+  `o widget apareceu sem pintar nenhum quadro` e a visibilidade é reacordada
+  (duas tentativas, depois só erro no log).
+
+Havia também uma corrida: o ditado escondia o widget 2 s depois do "Copiado"
+sem olhar se ele ainda era dele, e derrubava uma leitura ou um ditado que
+tivesse começado nesse intervalo. Agora ele só esconde se ninguém pediu o widget
+de novo (`hud_epoch`), e esconder respeita o papel: cancelar um ditado não tira a
+leitura da tela, e parar a leitura não tira o ditado.
+
 ## A onda
 
 A referência do Raycast faz poll a 50 ms e desenha o valor cru com uma transição
