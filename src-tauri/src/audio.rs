@@ -491,11 +491,24 @@ fn push_samples<S>(
     while (*position) < frames as f64 {
         let base = (*position as usize) * channels;
 
+        // Pega o canal de maior amplitude no quadro, em vez de somar todos e
+        // dividir. Muitos microfones USB baratos reportam estéreo sem ser: os
+        // dois canais carregam a mesma captura duplicada — às vezes em fase,
+        // às vezes não. Somar dois canais fora de fase cancela quase todo o
+        // sinal (a onda ainda mexe um pouco, o que parecia "o mic funcionando",
+        // mas o que sobra é baixo demais pro reconhecedor achar fala). Pegar o
+        // maior não muda nada quando os canais já são idênticos — só evita o
+        // cancelamento quando não são.
         let mut mixed = 0.0f32;
+        let mut maior_magnitude = 0.0f32;
         for offset in 0..channels {
-            mixed += f32::from_sample_(input[base + offset]);
+            let amostra = f32::from_sample_(input[base + offset]);
+            let magnitude = amostra.abs();
+            if magnitude >= maior_magnitude {
+                maior_magnitude = magnitude;
+                mixed = amostra;
+            }
         }
-        mixed /= channels as f32;
 
         let magnitude = mixed.abs();
         if magnitude > shared.peak {
