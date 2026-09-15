@@ -36,6 +36,18 @@ base64 = "0.22"
 arboard = "3"
 enigo = "0.2"   # no Windows usa o backend win32 (SendInput) por padrão
 
+[target.'cfg(windows)'.dependencies]
+# ID estável de microfone via WASAPI — ver `src/mic_id.rs`. Mesma versão que o
+# `cpal` já traz consigo, pra não duplicar a árvore de dependências.
+windows = { version = "0.54", features = [
+  "Win32_Media_Audio",
+  "Win32_Foundation",
+  "Win32_Devices_Properties",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Variant",
+] }
+
 # utilidades
 anyhow = "1"
 thiserror = "2"

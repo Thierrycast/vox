@@ -8,6 +8,7 @@ mod bridge;
 mod commands;
 mod config;
 mod dictation;
+mod mic_id;
 mod paste;
 mod presence;
 mod reading;
@@ -1161,6 +1162,31 @@ fn main() {
                 let estado = handle.state::<AppState>();
                 let desejado = estado.settings.lock().start_with_windows;
                 autostart::sync(desejado);
+            }
+
+            // O microfone preferido passou a ser guardado pelo ID estável do
+            // WASAPI, não mais pelo nome cru. Quem tinha uma configuração de
+            // antes dessa mudança continua funcionando (o casamento por nome
+            // ainda existe como caminho de reserva), mas o painel mostraria
+            // "não listado agora" pra um aparelho que está funcionando — só
+            // porque o dropdown passou a comparar por ID. Migrar uma vez no
+            // arranque evita esse falso alarme sem exigir que a pessoa
+            // reabra as preferências e escolha o microfone de novo.
+            {
+                let estado = handle.state::<AppState>();
+                let mut settings = estado.settings.lock();
+                if let Some(atual) = settings.input_device.clone() {
+                    if let Some(novo_id) = audio::migrar_id_se_precisar(&atual) {
+                        tracing::info!(
+                            antigo = %atual, novo = %novo_id,
+                            "microfone preferido migrado para o ID estável do WASAPI"
+                        );
+                        settings.input_device = Some(novo_id);
+                        if let Err(err) = settings.save() {
+                            tracing::warn!(?err, "não deu para gravar a migração do microfone");
+                        }
+                    }
+                }
             }
 
             let ligado = handle.state::<AppState>().settings.lock().service_enabled;

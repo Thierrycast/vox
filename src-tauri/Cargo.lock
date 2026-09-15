@@ -4813,6 +4813,7 @@ dependencies = [
  "tokio-tungstenite",
  "tracing",
  "tracing-subscriber",
+ "windows 0.54.0",
 ]
 
 [[package]]

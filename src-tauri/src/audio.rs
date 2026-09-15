@@ -105,24 +105,27 @@ impl Recording {
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct InputDevice {
+    /// ID estável do WASAPI (ver `mic_id`) — é isto que vai para
+    /// `settings.json`. Sobrevive a renomear o aparelho e ao índice de
+    /// desambiguação do Windows mudar; só muda se o microfone for pra outra
+    /// porta USB.
     pub id: String,
     pub name: String,
     pub is_default: bool,
 }
 
 pub fn list_input_devices() -> Result<Vec<InputDevice>> {
-    let host = cpal::default_host();
-    let default_name = host.default_input_device().and_then(|device| device.name().ok());
+    let default_id = crate::mic_id::default_capture_id();
 
-    let mut devices = Vec::new();
-    for device in host.input_devices().context("enumerar entradas")? {
-        let Ok(name) = device.name() else { continue };
-        devices.push(InputDevice {
-            is_default: Some(&name) == default_name.as_ref(),
-            id: name.clone(),
-            name,
-        });
-    }
+    let devices = crate::mic_id::list_capture_endpoints()
+        .context("enumerar microfones")?
+        .into_iter()
+        .map(|endpoint| InputDevice {
+            is_default: default_id.as_deref() == Some(endpoint.id.as_str()),
+            id: endpoint.id,
+            name: endpoint.name,
+        })
+        .collect();
     Ok(devices)
 }
 
@@ -304,6 +307,98 @@ fn normalizar_nome(nome: &str) -> String {
         .collect()
 }
 
+/// Se a preferência salva ainda for do formato antigo (o nome cru, de antes
+/// do ID estável existir) e algum microfone conectado agora corresponder a
+/// ela, devolve o ID pra regravar nas preferências.
+///
+/// Sem isto, quem já tinha um microfone configurado continuaria funcionando
+/// (o casamento por nome dentro de `resolve_preferred_device` cobre esse
+/// caso), mas o painel mostraria "não listado agora" pra um aparelho que na
+/// prática está funcionando normalmente — o dropdown passou a comparar por
+/// ID, e o nome cru não bate com ID nenhum. `None` quando não há nada pra
+/// migrar: ou já é um ID válido, ou não achou nada parecido.
+pub fn migrar_id_se_precisar(salvo: &str) -> Option<String> {
+    let endpoints = crate::mic_id::list_capture_endpoints().ok()?;
+    if endpoints.iter().any(|endpoint| endpoint.id == salvo) {
+        return None;
+    }
+
+    let host = cpal::default_host();
+    let device = resolve_preferred_device(&host, salvo)?;
+    let nome_atual = device.name().ok()?;
+
+    endpoints
+        .into_iter()
+        .find(|endpoint| endpoint.name == nome_atual)
+        .map(|endpoint| endpoint.id)
+}
+
+/// Acha o `cpal::Device` correspondente à preferência guardada.
+///
+/// A preferência guardada pode estar em dois formatos: o ID estável do
+/// WASAPI (o que `settings.json` passa a receber a partir de agora — ver
+/// `mic_id`) ou, numa configuração mais antiga, o nome amigável cru de antes
+/// dessa mudança. Tenta o ID primeiro — ele é imune tanto ao índice de
+/// desambiguação do Windows mudar quanto a renomear o aparelho — e só cai
+/// pro casamento por nome se a preferência não for um ID reconhecido agora
+/// (aparelho trocado de porta, ou é mesmo uma configuração antiga).
+///
+/// Dentro do casamento por nome, duas tentativas: exato primeiro, e um nome
+/// normalizado depois (ver `normalizar_nome`) — o que segura o microfone
+/// certo quando só o índice de desambiguação mudou. A normalização tira
+/// dígitos, então dois aparelhos DIFERENTES cujos nomes só se distinguem por
+/// números (duas unidades do mesmo modelo, ou "Scarlett 2i2"/"Scarlett 4i4")
+/// podem colidir no mesmo nome normalizado — nesse caso não dá pra saber
+/// qual dos dois é o certo, e mais de um candidato conta como "não achou" em
+/// vez de trocar de microfone em silêncio.
+fn resolve_preferred_device(host: &cpal::Host, wanted: &str) -> Option<cpal::Device> {
+    let disponiveis: Vec<(cpal::Device, String)> = host
+        .input_devices()
+        .ok()?
+        .filter_map(|device| {
+            let name = device.name().ok()?;
+            Some((device, name))
+        })
+        .collect();
+
+    if let Ok(endpoints) = crate::mic_id::list_capture_endpoints() {
+        if let Some(endpoint) = endpoints.iter().find(|endpoint| endpoint.id == wanted) {
+            if let Some((device, _)) =
+                disponiveis.iter().find(|(_, name)| name == &endpoint.name)
+            {
+                return Some(device.clone());
+            }
+        }
+    }
+
+    if let Some((device, _)) = disponiveis.iter().find(|(_, name)| name == wanted) {
+        return Some(device.clone());
+    }
+
+    let alvo = normalizar_nome(wanted);
+    if !alvo.is_empty() {
+        let mut candidatos = disponiveis
+            .iter()
+            .filter(|(_, name)| normalizar_nome(name) == alvo);
+        if let Some(primeiro) = candidatos.next() {
+            if candidatos.next().is_none() {
+                return Some(primeiro.0.clone());
+            }
+            tracing::warn!(
+                preferido = wanted,
+                "mais de um microfone conectado combina com o nome normalizado; ambíguo demais pra escolher sozinho"
+            );
+            return None;
+        }
+    }
+
+    tracing::warn!(
+        preferido = wanted,
+        "microfone preferido não encontrado entre os conectados; caindo para o padrão do sistema"
+    );
+    None
+}
+
 fn build_stream(
     sink: Arc<Mutex<Shared>>,
     preferred: Option<&str>,
@@ -313,63 +408,8 @@ fn build_stream(
     // A prioridade do usuário vence, mas só se o aparelho estiver conectado
     // agora. Não estando, cai no padrão do sistema — ficar sem gravar porque um
     // fone está na gaveta seria pior que gravar pelo microfone errado.
-    //
-    // Duas tentativas antes de desistir: nome exato primeiro, e um nome
-    // normalizado (ver `normalizar_nome`) depois — é o que segura o
-    // microfone certo quando só o índice de desambiguação mudou.
-    //
-    // A normalização tira dígitos, então dois aparelhos DIFERENTES cujos nomes
-    // só se distinguem por números (duas unidades do mesmo modelo, ou modelos
-    // como "Scarlett 2i2"/"Scarlett 4i4") podem colidir no mesmo nome
-    // normalizado. Nesse caso não dá pra saber qual dos dois é o certo — pegar
-    // o primeiro da lista seria trocar de microfone em silêncio, o mesmo
-    // problema que a normalização tenta evitar. Por isso, mais de um candidato
-    // conta como "não achou".
     let device = preferred
-        .and_then(|wanted| {
-            let disponiveis: Vec<(cpal::Device, String)> = host
-                .input_devices()
-                .ok()?
-                .filter_map(|device| {
-                    let name = device.name().ok()?;
-                    Some((device, name))
-                })
-                .collect();
-
-            disponiveis
-                .iter()
-                .find(|(_, name)| name == wanted)
-                .or_else(|| {
-                    let alvo = normalizar_nome(wanted);
-                    if alvo.is_empty() {
-                        // Nome sem nenhuma letra/número — normalizar não ajuda
-                        // a desambiguar nada, só combinaria com qualquer coisa
-                        // igualmente vazia.
-                        return None;
-                    }
-
-                    let mut candidatos = disponiveis
-                        .iter()
-                        .filter(|(_, name)| normalizar_nome(name) == alvo);
-                    let primeiro = candidatos.next()?;
-                    if candidatos.next().is_some() {
-                        tracing::warn!(
-                            preferido = wanted,
-                            "mais de um microfone conectado combina com o nome normalizado; ambíguo demais pra escolher sozinho"
-                        );
-                        return None;
-                    }
-                    Some(primeiro)
-                })
-                .map(|(device, _)| device.clone())
-                .or_else(|| {
-                    tracing::warn!(
-                        preferido = wanted,
-                        "microfone preferido não encontrado entre os conectados; caindo para o padrão do sistema"
-                    );
-                    None
-                })
-        })
+        .and_then(|wanted| resolve_preferred_device(&host, wanted))
         .or_else(|| host.default_input_device())
         .ok_or_else(|| anyhow!("nenhum microfone disponível"))?;
 
