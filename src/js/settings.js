@@ -102,6 +102,7 @@ const SECOES = {
   ajuste: ["Ajuste por IA", "Reescrever a fala crua antes de colar — e o quanto mexer nela."],
   leitura: ["Leitura", "Voz, ritmo e como acompanhar o texto que está sendo falado."],
   vocabulario: ["Vocabulário", "O que o reconhecedor precisa saber para não errar seus termos."],
+  gravacoes: ["Gravações", "O backup de áudio de cada ditado — pra quando algo dá errado."],
   atalhos: ["Atalhos", "As combinações globais, e o que fazer quando outro app toma uma."],
   widget: ["Widget", "A pílula flutuante: onde ela aparece e como ela se comporta."],
   extensao: ["Extensão", "A ponte local que a extensão de navegador usa."],
@@ -121,6 +122,10 @@ function abrirSecao(nome) {
   elemento("tituloSecao").textContent = titulo;
   elemento("descricaoSecao").textContent = descricao;
   elemento("rolagem").scrollTop = 0;
+
+  // Carregada ao abrir, e não junto do resto no início: a lista muda a cada
+  // ditado, e ninguém olha pra ela o tempo todo — só quando precisa.
+  if (nome === "gravacoes") carregarGravacoes();
 }
 
 for (const item of document.querySelectorAll(".nav-item")) {
@@ -728,6 +733,165 @@ botaoMaximizar.addEventListener("click", async () => {
 });
 janela.onResized(atualizarBotaoMaximizar);
 atualizarBotaoMaximizar();
+
+/* ----------------------------------------------------------------- gravações
+ *
+ * O backup é escrito pelo backend a cada ditado, antes de qualquer coisa que
+ * possa falhar (ver `recordings.rs`). Aqui só se lê, reenvia, marca como
+ * salvo ou apaga — nada disto grava áudio novo. */
+
+const STATUS_GRAVACAO = {
+  pendente: ["Pendente", "neutro"],
+  sem_fala: ["Sem fala detectada", "atencao"],
+  transcrito: ["Transcrito", "ok"],
+  vazio: ["Veio vazio", "atencao"],
+  falhou: ["Falhou", "erro"],
+};
+
+function formatarQuando(ms) {
+  const diffMin = Math.round((Date.now() - ms) / 60000);
+  if (diffMin < 1) return "agora mesmo";
+  if (diffMin < 60) return `há ${diffMin} min`;
+  const diffHoras = Math.round(diffMin / 60);
+  if (diffHoras < 24) return `há ${diffHoras}h`;
+  return new Date(ms).toLocaleString("pt-BR", {
+    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+function linhaGravacao(gravacao) {
+  const [rotuloStatus, tom] = STATUS_GRAVACAO[gravacao.status] ?? [gravacao.status, "neutro"];
+
+  const linha = document.createElement("div");
+  linha.className = "gravacao";
+
+  const cabecalho = document.createElement("div");
+  cabecalho.className = "gravacao-cabecalho";
+
+  const status = document.createElement("span");
+  status.className = "gravacao-status";
+  status.dataset.tom = tom;
+  status.textContent = rotuloStatus;
+  cabecalho.appendChild(status);
+
+  const quando = document.createElement("span");
+  quando.className = "gravacao-quando";
+  quando.textContent = `${formatarQuando(gravacao.created_at_ms)} · ${gravacao.duration_seconds.toFixed(1)}s`;
+  cabecalho.appendChild(quando);
+
+  const dispositivo = document.createElement("span");
+  dispositivo.className = "gravacao-dispositivo";
+  dispositivo.textContent = gravacao.device_name;
+  cabecalho.appendChild(dispositivo);
+
+  linha.appendChild(cabecalho);
+
+  if (gravacao.text) {
+    const texto = document.createElement("div");
+    texto.className = "gravacao-texto";
+    texto.textContent = gravacao.text;
+    linha.appendChild(texto);
+  }
+  if (gravacao.error) {
+    const erro = document.createElement("div");
+    erro.className = "gravacao-erro";
+    erro.textContent = gravacao.error;
+    linha.appendChild(erro);
+  }
+
+  const acoes = document.createElement("div");
+  acoes.className = "gravacao-acoes";
+
+  const reenviar = document.createElement("button");
+  reenviar.type = "button";
+  reenviar.className = "botao";
+  reenviar.textContent = "Reenviar";
+  reenviar.addEventListener("click", async () => {
+    reenviar.disabled = true;
+    reenviar.textContent = "Reenviando…";
+    try {
+      const atualizada = await invoke("retry_recording", { id: gravacao.id });
+      linha.replaceWith(linhaGravacao(atualizada));
+    } catch (erro) {
+      reenviar.disabled = false;
+      reenviar.textContent = "Reenviar";
+      mostrarFalha(String(erro));
+    }
+  });
+  acoes.appendChild(reenviar);
+
+  if (gravacao.text) {
+    const copiar = document.createElement("button");
+    copiar.type = "button";
+    copiar.className = "botao";
+    copiar.textContent = "Copiar";
+    copiar.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(gravacao.text);
+      copiar.textContent = "Copiado";
+      setTimeout(() => { copiar.textContent = "Copiar"; }, 1600);
+    });
+    acoes.appendChild(copiar);
+  }
+
+  const salvar = document.createElement("button");
+  salvar.type = "button";
+  salvar.className = "botao";
+  salvar.textContent = gravacao.saved ? "Salvo — fora da limpeza" : "Salvar";
+  salvar.disabled = gravacao.saved;
+  salvar.addEventListener("click", async () => {
+    try {
+      await invoke("save_recording", { id: gravacao.id });
+      salvar.textContent = "Salvo — fora da limpeza";
+      salvar.disabled = true;
+    } catch (erro) {
+      mostrarFalha(String(erro));
+    }
+  });
+  acoes.appendChild(salvar);
+
+  const excluir = document.createElement("button");
+  excluir.type = "button";
+  excluir.className = "botao";
+  excluir.textContent = "Excluir";
+  excluir.addEventListener("click", async () => {
+    try {
+      await invoke("delete_recording", { id: gravacao.id });
+      linha.remove();
+      if (!elemento("listaGravacoes").children.length) {
+        elemento("gravacoesVazio").hidden = false;
+      }
+    } catch (erro) {
+      mostrarFalha(String(erro));
+    }
+  });
+  acoes.appendChild(excluir);
+
+  linha.appendChild(acoes);
+  return linha;
+}
+
+async function carregarGravacoes() {
+  const lista = elemento("listaGravacoes");
+  const vazio = elemento("gravacoesVazio");
+  lista.innerHTML = "";
+
+  let gravacoes = [];
+  try {
+    gravacoes = await invoke("list_recordings");
+  } catch (erro) {
+    mostrarFalha(String(erro));
+    return;
+  }
+
+  vazio.hidden = gravacoes.length > 0;
+  for (const gravacao of gravacoes) {
+    lista.appendChild(linhaGravacao(gravacao));
+  }
+}
+
+elemento("abrirPastaGravacoes").addEventListener("click", () => {
+  invoke("open_recordings_folder").catch((erro) => mostrarFalha(String(erro)));
+});
 
 /* -------------------------------------------------------------------- listas */
 

@@ -12,6 +12,7 @@ mod mic_id;
 mod paste;
 mod presence;
 mod reading;
+mod recordings;
 mod sounds;
 mod stt_stream;
 mod tray;
@@ -442,6 +443,41 @@ fn show_settings(app: &AppHandle) {
 #[tauri::command]
 fn list_input_devices() -> Result<Vec<audio::InputDevice>, String> {
     audio::list_input_devices().map_err(|err| err.to_string())
+}
+
+/// Backup local de áudio — ver `recordings.rs` pro porquê.
+#[tauri::command]
+fn list_recordings() -> Result<Vec<recordings::RecordingMeta>, String> {
+    recordings::list().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn retry_recording(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<recordings::RecordingMeta, String> {
+    let (model, prompt) = {
+        let settings = state.settings.lock();
+        (settings.transcription_model.clone(), config::transcription_prompt(&settings))
+    };
+    recordings::retry(&id, &state.api, &model, &prompt)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn save_recording(id: String) -> Result<(), String> {
+    recordings::mark_saved(&id).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn delete_recording(id: String) -> Result<(), String> {
+    recordings::delete(&id).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn open_recordings_folder() -> Result<(), String> {
+    recordings::open_folder().map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -1118,6 +1154,11 @@ fn main() {
             reset_hud_position,
             show_floating_widget,
             restart_app,
+            list_recordings,
+            retry_recording,
+            save_recording,
+            delete_recording,
+            open_recordings_folder,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

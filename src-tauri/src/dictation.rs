@@ -347,7 +347,21 @@ impl Dictation {
             "gravação encerrada"
         );
 
+        // Guardado antes de qualquer coisa que possa dar errado — inclusive o
+        // julgamento local de "não teve fala" logo abaixo, que é exatamente o
+        // caso que mais vale poder reabrir na mão depois. Falhar em guardar
+        // não pode travar o ditado: `save` devolve `None` nesse caso, e o
+        // resto do fluxo segue normal, só sem rede de segurança desta vez.
+        let wav = recording.to_wav();
+        let backup_id = crate::recordings::save(&recording, &wav);
+
         if !recording.speech_detected || recording.duration_seconds() < 0.25 {
+            crate::recordings::set_result(
+                backup_id.as_deref(),
+                crate::recordings::Status::SemFala,
+                None,
+                None,
+            );
             self.reset();
             emit_state(&app, "warning", Some("Nenhuma fala detectada"), None);
             self.sounds.play(Cue::DictationFailure);
@@ -378,13 +392,17 @@ impl Dictation {
             None => String::new(),
         };
 
-        let wav = recording.to_wav();
         tracing::debug!(bytes = wav.len(), "enviando para transcrição");
 
         // Vocabulário e instruções viram o `prompt` da transcrição — é assim que
         // se ensina um nome próprio ao modelo. Antes eles eram guardados e nunca
         // enviados, porque a API não tinha onde recebê-los; desde a 2.6.0 tem.
         let prompt = crate::config::transcription_prompt(&settings);
+
+        // Guardado só quando o lote falha mas a reserva do streaming salva o
+        // ditado — o backup registra os dois lados: o texto que de fato saiu
+        // e o motivo de não ter vindo do caminho principal.
+        let mut erro_do_lote: Option<String> = None;
 
         let transcription = match self
             .api
@@ -404,9 +422,16 @@ impl Dictation {
                     Some("Texto parcial"),
                     Some("A transcrição final falhou; este veio do reconhecimento ao vivo."),
                 );
+                erro_do_lote = Some(err.to_string());
                 reserva.clone()
             }
             Err(err) => {
+                crate::recordings::set_result(
+                    backup_id.as_deref(),
+                    crate::recordings::Status::Falhou,
+                    None,
+                    Some(err.to_string()),
+                );
                 self.reset();
                 tracing::error!(?err, "transcrição falhou");
                 emit_state(&app, "error", Some("Transcrição falhou"), Some("Tente de novo"));
@@ -417,11 +442,24 @@ impl Dictation {
 
         let text = transcription.trim().to_string();
         if text.is_empty() {
+            crate::recordings::set_result(
+                backup_id.as_deref(),
+                crate::recordings::Status::Vazio,
+                None,
+                erro_do_lote,
+            );
             self.reset();
             emit_state(&app, "warning", Some("Nenhuma fala detectada"), None);
             self.sounds.play(Cue::DictationFailure);
             return Ok(String::new());
         }
+
+        crate::recordings::set_result(
+            backup_id.as_deref(),
+            crate::recordings::Status::Transcrito,
+            Some(text.clone()),
+            erro_do_lote,
+        );
 
         // A reescrita vem antes da palavra-chave de envio, e não depois: se ela
         // rodasse por último, o modelo receberia "manda ver" no fim do texto e
