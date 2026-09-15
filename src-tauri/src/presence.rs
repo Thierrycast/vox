@@ -29,6 +29,19 @@
 //! E, como a primeira explicação de um sumiço já custou uma investigação, cada
 //! vez que o widget aparece ele confirma que pintou um quadro. Se não pintar, o
 //! log diz, e a visibilidade é acordada de novo.
+//!
+//! ## O que essa confirmação ainda não cobria
+//!
+//! A confirmação de pintura só disparava na transição de escondido pra
+//! visível (`reveal()`). Ela não protegia contra a mesma composição parar de
+//! funcionar **depois**, com a janela já mostrada — sem uma transição, nada
+//! disparava a checagem de novo. Foi exatamente esse o próximo relato: o HUD
+//! ficou visível numa leitura, parou de pintar em algum momento no meio do
+//! caminho, e continuou "visível e vazio" por dezenas de minutos até a pessoa
+//! reiniciar o app na mão — a única coisa que de fato trouxe ele de volta.
+//!
+//! `watch_hud` fecha essa lacuna rodando a mesma checagem periodicamente
+//! enquanto a janela estiver visível, não só no instante em que aparece.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -46,6 +59,14 @@ const PRESENCE_TIMEOUT: Duration = Duration::from_millis(900);
 
 /// Tentativas de acordar a página antes de desistir e só registrar.
 const PRESENCE_ATTEMPTS: u8 = 2;
+
+/// De quanto em quanto tempo o vigia confere o HUD visível.
+///
+/// Curto o suficiente pra não deixar o widget morto na tela por muito tempo;
+/// longo o suficiente pra não virar tráfego de evento constante durante um
+/// ditado ou leitura normal, que já passam a maior parte do tempo com o HUD
+/// visível e pintando sem problema nenhum.
+const WATCH_INTERVAL: Duration = Duration::from_secs(15);
 
 fn set_webview_visible(window: &WebviewWindow, visible: bool) {
     let result = window.with_webview(move |webview| {
@@ -124,9 +145,18 @@ fn confirm_paint(app: AppHandle, attempts_left: u8) {
         }
 
         if attempts_left == 0 {
+            // Acordar o controlador (a troca de visibilidade acima) não
+            // bastou — é hora de um remédio mais forte. Recarregar a página
+            // obriga o WebView2 a reconstruir a superfície de composição do
+            // zero, e não só reafirmar uma flag; é o mesmo efeito que
+            // reiniciar o app inteiro tinha na prática, sem precisar disso.
             tracing::error!(
-                "o widget está na tela mas continua sem pintar, mesmo depois de acordar o WebView2"
+                "o widget está na tela mas continua sem pintar mesmo depois de acordar o \
+                 WebView2; recarregando a página"
             );
+            if let Err(error) = window.reload() {
+                tracing::warn!(?error, "não deu nem para recarregar a página do HUD");
+            }
             return;
         }
 
@@ -141,5 +171,31 @@ fn confirm_paint(app: AppHandle, attempts_left: u8) {
         tokio::time::sleep(Duration::from_millis(60)).await;
         set_webview_visible(&window, true);
         confirm_paint(app, attempts_left - 1);
+    });
+}
+
+/// Vigia o HUD pro resto da vida do processo: a cada `WATCH_INTERVAL`,
+/// se ele estiver visível, roda a mesma checagem de pintura que `reveal()`
+/// dispara — pegando o caso em que ele para de pintar **depois** de já
+/// mostrado, sem passar por uma transição de visibilidade que acionasse a
+/// checagem sozinha.
+///
+/// Chamado uma vez no arranque; o `tick` que não faz nada com a janela
+/// escondida é mais simples do que ligar e desligar um temporizador próprio
+/// a cada `show`/`hide`.
+pub fn watch_hud(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let mut batimento = tokio::time::interval(WATCH_INTERVAL);
+        // O primeiro `tick` de um `interval` novo resolve na hora; sem pular
+        // ele, a primeira checagem rodaria antes mesmo do primeiro `reveal()`
+        // ter chance de mostrar alguma coisa.
+        batimento.tick().await;
+        loop {
+            batimento.tick().await;
+            let Some(window) = app.get_webview_window("hud") else { continue };
+            if window.is_visible().unwrap_or(false) {
+                confirm_paint(app.clone(), PRESENCE_ATTEMPTS);
+            }
+        }
     });
 }

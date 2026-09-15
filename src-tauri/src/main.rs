@@ -1211,6 +1211,11 @@ fn main() {
                 presence::conceal(&hud);
             }
 
+            // Confere pro resto da vida do processo que o HUD, enquanto
+            // visível, continua pintando — não só no instante em que aparece.
+            // Ver o "O que essa confirmação ainda não cobria" em presence.rs.
+            presence::watch_hud(handle.clone());
+
             // A preferência é a intenção; a chave do registro é o estado. Elas
             // divergem quando alguém limpa a inicialização com um utilitário por
             // fora, e a partida é o momento de reconciliar.
