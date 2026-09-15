@@ -80,6 +80,22 @@ fn caminho_meta(id: &str, base: &Path) -> PathBuf {
     base.join(format!("{id}.json"))
 }
 
+/// Confere que `id` tem exatamente a forma que `novo_id` gera — hex, um
+/// traço, hex — antes de virar caminho de arquivo.
+///
+/// `retry`/`mark_saved`/`delete` recebem `id` direto do IPC (`invoke` do
+/// front), sem passar por `novo_id`; sem esta checagem, um `id` malicioso
+/// como `"../../../algum/arquivo"` chegaria a `caminho_wav`/`caminho_meta` e
+/// `PathBuf::join` — que não tem noção de sandbox — escaparia da pasta de
+/// gravações.
+fn id_valido(id: &str) -> bool {
+    let Some((esquerda, direita)) = id.split_once('-') else { return false };
+    !esquerda.is_empty()
+        && !direita.is_empty()
+        && esquerda.chars().all(|c| c.is_ascii_hexdigit())
+        && direita.chars().all(|c| c.is_ascii_hexdigit())
+}
+
 fn agora_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -207,6 +223,7 @@ pub async fn retry(
     model: &str,
     prompt: &str,
 ) -> Result<RecordingMeta> {
+    anyhow::ensure!(id_valido(id), "id de gravação inválido");
     let base = dir();
     let wav = std::fs::read(caminho_wav(id, &base)).context("ler o áudio guardado")?;
 
@@ -230,6 +247,7 @@ pub async fn retry(
 
 /// Tira a gravação da faixa de expurgo automático.
 pub fn mark_saved(id: &str) -> Result<()> {
+    anyhow::ensure!(id_valido(id), "id de gravação inválido");
     let base = dir();
     let caminho = caminho_meta(id, &base);
     let mut meta = ler_meta(&caminho)?;
@@ -240,6 +258,7 @@ pub fn mark_saved(id: &str) -> Result<()> {
 /// Apaga a gravação na hora, sem esperar o expurgo — mesmo uma marcada como
 /// salva: pedido explícito vale mais que a proteção.
 pub fn delete(id: &str) -> Result<()> {
+    anyhow::ensure!(id_valido(id), "id de gravação inválido");
     let base = dir();
     let _ = std::fs::remove_file(caminho_wav(id, &base));
     std::fs::remove_file(caminho_meta(id, &base)).context("apagar os metadados da gravação")

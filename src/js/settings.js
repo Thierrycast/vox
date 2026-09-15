@@ -826,8 +826,12 @@ function linhaGravacao(gravacao) {
     copiar.className = "botao";
     copiar.textContent = "Copiar";
     copiar.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(gravacao.text);
-      copiar.textContent = "Copiado";
+      try {
+        await navigator.clipboard.writeText(gravacao.text);
+        copiar.textContent = "Copiado";
+      } catch {
+        copiar.textContent = "Falhou";
+      }
       setTimeout(() => { copiar.textContent = "Copiar"; }, 1600);
     });
     acoes.appendChild(copiar);

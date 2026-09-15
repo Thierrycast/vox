@@ -221,7 +221,7 @@ fn responder_menu(app: &AppHandle, id: &str) {
 
 fn mostrar_leitor(app: &AppHandle) {
     if let Some(janela) = app.get_webview_window("reader") {
-        let _ = janela.show();
+        let _ = crate::presence::reveal(&janela);
         let _ = janela.unminimize();
         let _ = janela.set_focus();
     }

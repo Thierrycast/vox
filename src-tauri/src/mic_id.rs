@@ -86,31 +86,40 @@ unsafe fn friendly_name(device: &IMMDevice) -> Result<String> {
         .GetValue(&DEVPKEY_Device_FriendlyName as *const _ as *const _)
         .context("ler o nome do microfone")?;
 
-    let variante = &valor.as_raw().Anonymous.Anonymous;
-    if variante.vt != VT_LPWSTR.0 {
-        anyhow::bail!("property store devolveu um tipo inesperado pro nome do microfone");
-    }
-    let ptr_utf16 = *(&variante.Anonymous as *const _ as *const *const u16);
+    // Fechado num closure, e não espalhado com `?` direto no corpo da função,
+    // pra `PropVariantClear` rodar sempre — sucesso ou erro — em vez de
+    // vazar a PROPVARIANT quando um retorno antecipado pulasse a limpeza.
+    let resultado = (|| -> Result<String> {
+        let variante = &valor.as_raw().Anonymous.Anonymous;
+        if variante.vt != VT_LPWSTR.0 {
+            anyhow::bail!("property store devolveu um tipo inesperado pro nome do microfone");
+        }
+        let ptr_utf16 = *(&variante.Anonymous as *const _ as *const *const u16);
+        if ptr_utf16.is_null() {
+            anyhow::bail!("property store devolveu um nome nulo pro microfone");
+        }
 
-    let mut len = 0isize;
-    while *ptr_utf16.offset(len) != 0 {
-        len += 1;
-    }
-    let fatia = std::slice::from_raw_parts(ptr_utf16, len as usize);
-    let nome = String::from_utf16_lossy(fatia);
+        let mut len = 0isize;
+        while *ptr_utf16.offset(len) != 0 {
+            len += 1;
+        }
+        let fatia = std::slice::from_raw_parts(ptr_utf16, len as usize);
+        Ok(String::from_utf16_lossy(fatia))
+    })();
 
     let _ = PropVariantClear(&mut valor);
-    Ok(nome)
+    resultado
 }
 
 /// Lê o ID estável de um endpoint.
 unsafe fn endpoint_id(device: &IMMDevice) -> Result<String> {
     let bruto = device.GetId().context("ler o ID do microfone")?;
-    let id = bruto
-        .to_string()
-        .context("ID do microfone não é UTF-16 válido")?;
+    // `CoTaskMemFree` roda mesmo se `to_string` falhar (UTF-16 inválido) —
+    // senão o buffer alocado pelo `GetId` vaza a cada chamada com um ID
+    // ilegível.
+    let resultado = bruto.to_string().context("ID do microfone não é UTF-16 válido");
     CoTaskMemFree(Some(bruto.as_ptr() as *const _));
-    Ok(id)
+    resultado
 }
 
 /// Todos os microfones ligados agora, com ID estável e nome amigável.
@@ -123,13 +132,33 @@ pub fn list_capture_endpoints() -> Result<Vec<Endpoint>> {
             .context("enumerar microfones")?;
         let total = colecao.GetCount().context("contar microfones")?;
 
+        // Um microfone só com propriedade ilegível não pode derrubar a lista
+        // inteira — a pessoa perderia acesso a todos os outros, funcionando,
+        // por causa de um só. Pula o que falhar e loga; é o mesmo
+        // comportamento que a enumeração via `cpal` tinha antes desta troca.
         let mut lista = Vec::with_capacity(total as usize);
         for indice in 0..total {
-            let device = colecao
-                .Item(indice)
-                .context("acessar um microfone da lista")?;
-            let id = endpoint_id(&device)?;
-            let name = friendly_name(&device)?;
+            let device = match colecao.Item(indice) {
+                Ok(device) => device,
+                Err(err) => {
+                    tracing::warn!(?err, indice, "não deu para acessar um microfone da lista; pulando");
+                    continue;
+                }
+            };
+            let id = match endpoint_id(&device) {
+                Ok(id) => id,
+                Err(err) => {
+                    tracing::warn!(?err, indice, "não deu para ler o ID de um microfone; pulando");
+                    continue;
+                }
+            };
+            let name = match friendly_name(&device) {
+                Ok(name) => name,
+                Err(err) => {
+                    tracing::warn!(?err, id, "não deu para ler o nome de um microfone; pulando");
+                    continue;
+                }
+            };
             lista.push(Endpoint { id, name });
         }
         Ok(lista)

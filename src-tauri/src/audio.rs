@@ -371,8 +371,21 @@ fn resolve_preferred_device(host: &cpal::Host, wanted: &str) -> Option<cpal::Dev
         }
     }
 
-    if let Some((device, _)) = disponiveis.iter().find(|(_, name)| name == wanted) {
-        return Some(device.clone());
+    // Igual ao casamento por nome normalizado logo abaixo: mais de um
+    // candidato é ambíguo demais pra escolher sozinho, e não "o primeiro que
+    // apareceu" — a ordem de enumeração do cpal não é garantida estável
+    // entre sessões, então escolher em silêncio arriscaria gravar pelo
+    // microfone errado sem avisar ninguém.
+    let mut exatos = disponiveis.iter().filter(|(_, name)| name == wanted);
+    if let Some(primeiro) = exatos.next() {
+        if exatos.next().is_none() {
+            return Some(primeiro.0.clone());
+        }
+        tracing::warn!(
+            preferido = wanted,
+            "mais de um microfone conectado tem exatamente este nome; ambíguo demais pra escolher sozinho"
+        );
+        return None;
     }
 
     let alvo = normalizar_nome(wanted);

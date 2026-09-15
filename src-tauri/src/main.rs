@@ -375,18 +375,21 @@ fn open_settings(app: AppHandle) {
 /// fica preso lá sem nenhuma forma de fechar.
 ///
 /// Só alterna quando não há nada acontecendo de verdade. Com um ditado ou
-/// uma leitura em curso, o widget já está na tela por um motivo — apertar o
-/// atalho de novo reafirma que ele apareça, mas não o esconde por baixo do
-/// que está em andamento.
-#[tauri::command]
-fn show_floating_widget(app: AppHandle, state: State<'_, AppState>) {
+/// uma leitura em curso — ou só concluída/falha, mas ainda na tela — o
+/// widget já está lá por um motivo: apertar o atalho de novo reafirma que
+/// ele apareça, mas não o esconde por baixo do que está em andamento.
+///
+/// Usada tanto pelo comando do painel (`show_floating_widget`) quanto pelo
+/// atalho global `Ctrl+Alt+V` (`Command::ShowWidget`) — as duas entradas
+/// precisam do mesmo alternador, senão uma delas continua com o bug antigo
+/// de "trava na tela sem jeito de tirar".
+fn toggle_floating_widget(app: &AppHandle) {
+    let state = app.state::<AppState>();
     let ocupado = state.dictation.session().lock().phase() != dictation::Phase::Idle
-        || matches!(
-            state.reader.state(),
-            reading::ReadingState::Generating
-                | reading::ReadingState::Playing
-                | reading::ReadingState::Paused
-        );
+        // Qualquer coisa diferente de `Idle` — incluindo `Complete` e
+        // `Failed` — significa que a leitura ainda tem HUD próprio na tela;
+        // só `stop()` (chamado à parte) volta o estado a `Idle` e esconde.
+        || state.reader.state() != reading::ReadingState::Idle;
 
     if !ocupado {
         let ocioso_visivel = app
@@ -395,12 +398,19 @@ fn show_floating_widget(app: AppHandle, state: State<'_, AppState>) {
             .unwrap_or(false)
             && dictation::current_role() == Some(dictation::HudRole::Dictation);
         if ocioso_visivel {
-            dictation::hide_hud(&app, dictation::HudRole::Dictation);
+            dictation::hide_hud(app, dictation::HudRole::Dictation);
             return;
         }
     }
 
-    dictation::show_idle_hud(&app);
+    dictation::show_idle_hud(app);
+}
+
+/// Mesma lógica de `toggle_floating_widget`, exposta ao painel de
+/// preferências como comando Tauri.
+#[tauri::command]
+fn show_floating_widget(app: AppHandle) {
+    toggle_floating_widget(&app);
 }
 
 /// Reinicia o processo do Vox.
@@ -520,7 +530,7 @@ fn show_reader(app: AppHandle) {
 /// da pessoa para sempre.
 fn raise(window: &tauri::WebviewWindow) {
     let _ = window.set_always_on_top(true);
-    let _ = window.show();
+    let _ = crate::presence::reveal(window);
     let _ = window.unminimize();
     let _ = window.set_focus();
     let _ = window.set_always_on_top(false);
@@ -752,7 +762,7 @@ fn executar(app: AppHandle, comando: commands::Command) {
             // na janela daqui mantém a animação e a preferência num caminho só.
             let _ = app.emit("vox://toggle-captions", serde_json::json!({ "enabled": ligada }));
         }
-        Command::ShowWidget => dictation::show_idle_hud(&app),
+        Command::ShowWidget => toggle_floating_widget(&app),
         Command::OpenSettings => show_settings(&app),
     }
 }
@@ -931,7 +941,12 @@ async fn toggle_dictation(app: AppHandle) {
         let epoch = dictation::hud_epoch();
         tokio::time::sleep(std::time::Duration::from_millis(dictation::SUCCESS_HOLD_MS)).await;
         dictation::hide_hud_since(&app, dictation::HudRole::Dictation, epoch);
-        dictation::hide_live_window(&app);
+        // Mesma proteção do HUD: um novo ditado ou leitura começado durante a
+        // espera já reabriu a janela de texto ao vivo por conta própria —
+        // escondê-la agora, sem olhar o epoch, derrubaria essa sessão nova.
+        if dictation::hud_epoch() == epoch {
+            dictation::hide_live_window(&app);
+        }
         return;
     }
 
@@ -1319,7 +1334,9 @@ fn main() {
             if window.label() == "settings" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
-                    let _ = window.hide();
+                    if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
+                        crate::presence::conceal(&webview);
+                    }
                 }
                 return;
             }
@@ -1331,7 +1348,9 @@ fn main() {
                 // que a reprodução terminou, e o estado da leitura ficava preso
                 // em `Playing`. Com a janela viva, o front sempre reporta.
                 api.prevent_close();
-                let _ = window.hide();
+                if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
+                    crate::presence::conceal(&webview);
+                }
 
                 // Fechar o leitor é dizer "terminei" — parar a fala junto é o
                 // que a pessoa espera, e deixar a voz seguindo sem janela

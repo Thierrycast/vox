@@ -83,7 +83,13 @@ pub fn reveal(window: &WebviewWindow) -> tauri::Result<()> {
 /// Esconde a janela e diz ao WebView2 que ninguém está olhando.
 pub fn conceal(window: &WebviewWindow) {
     set_webview_visible(window, false);
-    let _ = window.hide();
+    // Igual a `reveal`: um `hide()` que falha não pode passar batido — sem o
+    // log, a janela ficaria visível pro Windows enquanto o WebView2 já se
+    // acha escondido, o mesmo desencontro de estado que este arquivo existe
+    // pra evitar, só que ao contrário.
+    if let Err(error) = window.hide() {
+        tracing::warn!(?error, janela = window.label(), "não deu para esconder a janela");
+    }
 }
 
 /// A página respondeu a um pedido de confirmação de dentro de um quadro.
