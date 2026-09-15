@@ -283,6 +283,27 @@ fn run_capture(
     drop(stream);
 }
 
+/// Normaliza um nome de dispositivo pra comparar entre sessões.
+///
+/// O Windows às vezes enfia um índice de desambiguação no meio do nome —
+/// `"Fifine microfone (3- fifine Microphone)"` — e esse número muda sozinho
+/// entre uma sessão e outra (outro aparelho conecta antes, o mesmo aparelho
+/// volta numa porta USB diferente, etc). Uma comparação exata contra o nome
+/// salvo então deixa de bater, e o código caía pro microfone padrão do
+/// sistema sem avisar ninguém — a pessoa continuava vendo a forma de onda se
+/// mexer (o padrão também capta som), só que a transcrição vinha vazia,
+/// porque o som de verdade estava indo pro aparelho errado.
+///
+/// Tirar dígitos e pontuação e comparar em minúsculo torna a comparação
+/// imune a esse índice, sem precisar adivinhar o formato exato que o driver
+/// vai usar da próxima vez.
+fn normalizar_nome(nome: &str) -> String {
+    nome.chars()
+        .filter(|c| c.is_alphanumeric() && !c.is_ascii_digit())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
+}
+
 fn build_stream(
     sink: Arc<Mutex<Shared>>,
     preferred: Option<&str>,
@@ -292,11 +313,62 @@ fn build_stream(
     // A prioridade do usuário vence, mas só se o aparelho estiver conectado
     // agora. Não estando, cai no padrão do sistema — ficar sem gravar porque um
     // fone está na gaveta seria pior que gravar pelo microfone errado.
+    //
+    // Duas tentativas antes de desistir: nome exato primeiro, e um nome
+    // normalizado (ver `normalizar_nome`) depois — é o que segura o
+    // microfone certo quando só o índice de desambiguação mudou.
+    //
+    // A normalização tira dígitos, então dois aparelhos DIFERENTES cujos nomes
+    // só se distinguem por números (duas unidades do mesmo modelo, ou modelos
+    // como "Scarlett 2i2"/"Scarlett 4i4") podem colidir no mesmo nome
+    // normalizado. Nesse caso não dá pra saber qual dos dois é o certo — pegar
+    // o primeiro da lista seria trocar de microfone em silêncio, o mesmo
+    // problema que a normalização tenta evitar. Por isso, mais de um candidato
+    // conta como "não achou".
     let device = preferred
         .and_then(|wanted| {
-            host.input_devices()
+            let disponiveis: Vec<(cpal::Device, String)> = host
+                .input_devices()
                 .ok()?
-                .find(|device| device.name().is_ok_and(|name| name == wanted))
+                .filter_map(|device| {
+                    let name = device.name().ok()?;
+                    Some((device, name))
+                })
+                .collect();
+
+            disponiveis
+                .iter()
+                .find(|(_, name)| name == wanted)
+                .or_else(|| {
+                    let alvo = normalizar_nome(wanted);
+                    if alvo.is_empty() {
+                        // Nome sem nenhuma letra/número — normalizar não ajuda
+                        // a desambiguar nada, só combinaria com qualquer coisa
+                        // igualmente vazia.
+                        return None;
+                    }
+
+                    let mut candidatos = disponiveis
+                        .iter()
+                        .filter(|(_, name)| normalizar_nome(name) == alvo);
+                    let primeiro = candidatos.next()?;
+                    if candidatos.next().is_some() {
+                        tracing::warn!(
+                            preferido = wanted,
+                            "mais de um microfone conectado combina com o nome normalizado; ambíguo demais pra escolher sozinho"
+                        );
+                        return None;
+                    }
+                    Some(primeiro)
+                })
+                .map(|(device, _)| device.clone())
+                .or_else(|| {
+                    tracing::warn!(
+                        preferido = wanted,
+                        "microfone preferido não encontrado entre os conectados; caindo para o padrão do sistema"
+                    );
+                    None
+                })
         })
         .or_else(|| host.default_input_device())
         .ok_or_else(|| anyhow!("nenhum microfone disponível"))?;
