@@ -6,7 +6,8 @@
     "hud",
     "reader",
     "live",
-    "settings"
+    "settings",
+    "onboarding"
   ],
   "permissions": [
     "core:default",

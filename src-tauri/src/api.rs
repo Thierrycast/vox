@@ -214,7 +214,7 @@ impl SpeechApi {
             .context("enviar áudio para transcrição")?;
 
         ensure_ok(&response)?;
-        Ok(response.json().await.context("ler transcrição")?)
+        response.json().await.context("ler transcrição")
     }
 
     /// Gera a fala de um trecho e devolve os bytes do mp3 já baixados.

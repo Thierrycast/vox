@@ -197,7 +197,11 @@ fn responder_menu(app: &AppHandle, id: &str) {
             // A página de comparação vive no próprio servidor; abrir no
             // navegador evita embutir uma terceira janela no app para algo que
             // se usa uma vez a cada tanto.
-            let url = format!("{}/vozes", crate::config::base_url());
+            let base = app
+                .try_state::<AppState>()
+                .map(|state| crate::config::base_url(&state.settings.lock()))
+                .unwrap_or_default();
+            let url = format!("{base}/vozes");
             if let Err(err) = abrir_no_navegador(&url) {
                 tracing::error!(?err, %url, "não foi possível abrir o navegador");
             }

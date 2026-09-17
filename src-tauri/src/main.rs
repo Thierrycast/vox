@@ -315,8 +315,8 @@ fn catalogo_atual(state: &AppState) -> Vec<serde_json::Value> {
 
 /// Endereço da API, para o painel dizer para onde o áudio vai.
 #[tauri::command]
-fn api_base_url() -> String {
-    config::base_url()
+fn api_base_url(state: State<'_, AppState>) -> String {
+    config::base_url(&state.settings.lock())
 }
 
 /// Caminho do arquivo de preferências.
@@ -493,6 +493,26 @@ fn open_recordings_folder() -> Result<(), String> {
 #[tauri::command]
 async fn api_health(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     state.api.health().await.map_err(|err| err.to_string())
+}
+
+/// Testa um endereço de servidor sem tocar no cliente já em uso — é assim que
+/// o painel confere o que está escrito no campo antes de salvar. Cliente
+/// avulso, descartado no fim da chamada: o de verdade só troca com um
+/// reinício (ver `restart_app`), porque `SpeechApi` é montado uma vez na
+/// partida e o resto do app guarda um `Arc` para ele.
+#[tauri::command]
+async fn test_server_connection(
+    base_url: String,
+    user: String,
+    password: String,
+) -> Result<serde_json::Value, String> {
+    let credentials = if user.trim().is_empty() {
+        None
+    } else {
+        Some(api::Credentials { username: user, password })
+    };
+    let cliente = api::SpeechApi::new(&base_url, credentials).map_err(|err| err.to_string())?;
+    cliente.health().await.map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -1102,8 +1122,8 @@ fn main() {
     start_logging();
 
     let settings = Settings::load();
-    let base_url = config::base_url();
-    let credentials = config::credentials();
+    let base_url = config::base_url(&settings);
+    let credentials = config::credentials(&settings);
 
     if credentials.is_none() {
         tracing::warn!(
@@ -1145,6 +1165,7 @@ fn main() {
             save_settings,
             list_input_devices,
             api_health,
+            test_server_connection,
             api_voices,
             cancel_dictation,
             show_reader,
@@ -1247,6 +1268,17 @@ fn main() {
                             tracing::warn!(?err, "não deu para gravar a migração do microfone");
                         }
                     }
+                }
+            }
+
+            // Primeiro uso: sem servidor configurado, ditado e leitura não têm
+            // como funcionar, e uma bandeja muda não dá nenhuma pista disso.
+            // O assistente só aparece até `onboarding_completed` virar `true`.
+            let precisa_de_onboarding =
+                !handle.state::<AppState>().settings.lock().onboarding_completed;
+            if precisa_de_onboarding {
+                if let Some(window) = handle.get_webview_window("onboarding") {
+                    raise(&window);
                 }
             }
 

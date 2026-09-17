@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="favicon.svg">
+<title>Vox</title>
+<link rel="stylesheet" href="css/settings.css">
+<link rel="stylesheet" href="css/onboarding.css">
+</head>
+<body>
+<div class="janela janela--onboarding">
+
+  <header class="titulo">
+    <div class="titulo-controles">
+      <button class="titulo-btn titulo-btn--fechar" type="button" id="janelaFechar" aria-label="Fechar" title="Fechar">
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2.75 2.75l6.5 6.5M9.25 2.75l-6.5 6.5"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="onboarding">
+    <div class="onboarding-passos">
+
+      <!-- ------------------------------------------------- boas-vindas -->
+      <section class="passo" data-passo="boas-vindas" data-ativo="true">
+        <div class="onboarding-marca"><strong>Vox</strong><span>ditado e leitura por voz</span></div>
+        <h1>Antes de começar</h1>
+        <p>O Vox não fala nem ouve por conta própria — ele é um <strong>cliente</strong> para
+           um servidor de voz compatível, que faz a transcrição e a síntese de fala de
+           verdade. Sem um desses configurado, ditado e leitura não funcionam.</p>
+        <p class="onboarding-nota">Ainda não tem um servidor? O README do projeto explica o
+           que ele precisa expor. Você pode continuar sem um agora e configurar depois, nas
+           preferências.</p>
+      </section>
+
+      <!-- ------------------------------------------------------ servidor -->
+      <section class="passo" data-passo="servidor">
+        <h1>Servidor</h1>
+        <p>Para onde o Vox manda o áudio e busca a voz de volta.</p>
+
+        <div class="linha">
+          <span class="rotulo">
+            <span>Endereço do servidor</span>
+            <small>Com o protocolo — <code>http://</code> ou <code>https://</code> — e a
+                   porta, se não for a padrão.</small>
+          </span>
+          <div class="controle"><input type="text" id="obBaseUrl" spellcheck="false" placeholder="http://192.168.1.10:8010"></div>
+        </div>
+        <div class="linha">
+          <span class="rotulo">
+            <span>Usuário</span>
+            <small>Só se o caminho até o servidor exigir basicAuth.</small>
+          </span>
+          <div class="controle"><input type="text" id="obUser" spellcheck="false" autocomplete="off" placeholder="(nenhum)"></div>
+        </div>
+        <div class="linha">
+          <span class="rotulo"><span>Senha</span></span>
+          <div class="controle"><input type="password" id="obPassword" autocomplete="off" placeholder="(nenhuma)"></div>
+        </div>
+        <div class="linha">
+          <span class="rotulo">
+            <span>Testar conexão</span>
+            <small>Confere agora, sem esperar terminar o assistente.</small>
+          </span>
+          <div class="controle">
+            <button type="button" class="botao" id="obTestar">Testar</button>
+            <span class="teste-resultado" id="obTesteResultado"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ----------------------------------------------------- microfone -->
+      <section class="passo" data-passo="microfone">
+        <h1>Microfone</h1>
+        <p>Qual aparelho o ditado deve escutar. Dá para mudar depois, e o Vox se adapta se o
+           mesmo microfone reaparecer numa porta USB diferente.</p>
+        <div class="linha">
+          <span class="rotulo"><span>Microfone</span></span>
+          <div class="controle"><div class="select"><select id="obInputDevice"></select></div></div>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------------- atalhos -->
+      <section class="passo" data-passo="atalhos">
+        <h1>Atalhos</h1>
+        <p>Já vêm com combinações escolhidas para não tomar nada do Windows nem do teclado
+           ABNT2. Tudo isso se muda depois, nas preferências.</p>
+        <div class="onboarding-atalhos" id="obAtalhos"></div>
+      </section>
+
+      <!-- ----------------------------------------------------------- fim -->
+      <section class="passo" data-passo="fim">
+        <h1>Pronto</h1>
+        <p>O Vox vive na bandeja — o ícone perto do relógio. Botão direito nele pra pausar,
+           reiniciar ou abrir as preferências a qualquer hora.</p>
+        <p class="onboarding-nota">Concluir reinicia o Vox uma vez, para o servidor escolhido
+           valer de verdade.</p>
+      </section>
+
+    </div>
+
+    <footer class="onboarding-rodape">
+      <div class="onboarding-pontos" id="obPontos"></div>
+      <div class="onboarding-botoes">
+        <button type="button" class="botao" id="obVoltar">Voltar</button>
+        <button type="button" class="botao" data-primario id="obAvancar">Continuar</button>
+      </div>
+    </footer>
+  </main>
+</div>
+
+<script type="module" src="js/onboarding.js"></script>
+</body>
+</html>

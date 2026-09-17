@@ -166,7 +166,7 @@ impl SttStream {
             "words": false,
         });
         write
-            .send(Message::Text(config.to_string().into()))
+            .send(Message::Text(config.to_string()))
             .await
             .context("enviar config")?;
 
@@ -189,13 +189,13 @@ impl SttStream {
                                     .iter()
                                     .flat_map(|amostra| amostra.to_le_bytes())
                                     .collect();
-                                if write.send(Message::Binary(bytes.into())).await.is_err() {
+                                if write.send(Message::Binary(bytes)).await.is_err() {
                                     break;
                                 }
                             }
                             Some(Command::Finish) | None => {
                                 let eof = serde_json::json!({"type": "eof"}).to_string();
-                                let _ = write.send(Message::Text(eof.into())).await;
+                                let _ = write.send(Message::Text(eof)).await;
                                 finished = true;
                             }
                         }

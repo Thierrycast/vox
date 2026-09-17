@@ -1,9 +1,14 @@
 //! Configuração do app.
 //!
-//! Nada de credencial em código ou em arquivo versionado: a URL e o login vêm do
-//! ambiente. As preferências de uso (voz, velocidade, atalhos) ficam num JSON no
-//! diretório de config do usuário, que pode ir para o disco à vontade porque não
-//! guarda segredo nenhum.
+//! Nada de credencial em código ou em arquivo versionado — a URL e o login do
+//! servidor têm um padrão embutido e podem vir do ambiente (`VOX_API_URL` e
+//! companhia), mas quem instala normalmente escolhe pelo painel, na seção
+//! "Servidor", que grava no JSON de preferências do usuário. É o mesmo
+//! arquivo que já guarda o `bridge_token` da extensão em texto puro: outra
+//! credencial de uso local, sem sair da máquina, não muda o modelo de ameaça.
+//! O ambiente continua funcionando como veio antes — é a saída pra quem
+//! prefere configurar por fora do app (scripts, deploy automatizado) — e o
+//! painel vence quando os dois estão preenchidos.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -38,6 +43,27 @@ const DEFAULT_BASE_URL: &str = "http://100.122.39.56:8010";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    // --- servidor ---
+    /// Endereço da speech-api. Vazio cai no padrão do ambiente (`VOX_API_URL`,
+    /// depois o padrão embutido) — pensado pra quem instala o Vox sem ter um
+    /// servidor próprio ainda configurado no painel.
+    ///
+    /// O Vox depende de um servidor compatível pra falar e ouvir; ele não
+    /// embute nenhum modelo de fala. Ver "Servidor" nas preferências e o
+    /// README pro que esse servidor precisa expor.
+    pub api_base_url: Option<String>,
+    /// Usuário do basicAuth, se o caminho até o servidor exigir. A maioria
+    /// não precisa — o caminho comum é sobre uma rede privada (tailnet) que
+    /// não passa por nenhum proxy autenticado.
+    pub api_user: Option<String>,
+    pub api_password: Option<String>,
+
+    /// Já passou pelo primeiro-uso. Enquanto `false`, o Vox abre a janela de
+    /// boas-vindas em vez do comportamento normal — sem isso, alguém
+    /// instalando pela primeira vez encara uma bandeja muda sem nenhuma pista
+    /// de que precisa apontar pra um servidor antes de ditar qualquer coisa.
+    pub onboarding_completed: bool,
+
     // --- ditado ---
     pub input_device: Option<String>,
     pub transcription_model: String,
@@ -225,6 +251,11 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            api_base_url: None,
+            api_user: None,
+            api_password: None,
+            onboarding_completed: false,
+
             input_device: None,
             // O Vosk devolve tudo em minúscula e sem pontuação; o Whisper sai
             // pronto. O padrão é o que dá menos trabalho ao usuário — quem
@@ -391,10 +422,30 @@ impl Settings {
     pub fn load() -> Self {
         let path = settings_path();
         let mut settings = match std::fs::read_to_string(&path) {
-            Ok(raw) => serde_json::from_str(&raw).unwrap_or_else(|err| {
-                tracing::warn!(?path, ?err, "preferências ilegíveis; usando os padrões");
-                Settings::default()
-            }),
+            Ok(raw) => {
+                // O onboarding é novo; um arquivo de antes dele nunca teve este
+                // campo, e cairia no padrão (`false`) do jeito normal de tratar
+                // campo ausente — igual e correto pra tudo mais nesta struct,
+                // errado só aqui: forçaria o assistente de primeiro uso em
+                // quem já configurou o Vox há dias, só porque a versão é mais
+                // nova. `contains_key` decide isso **antes** do valor sumir no
+                // meio da desserialização.
+                let tinha_o_campo = serde_json::from_str::<serde_json::Value>(&raw)
+                    .ok()
+                    .and_then(|valor| {
+                        valor.as_object().map(|mapa| mapa.contains_key("onboarding_completed"))
+                    })
+                    .unwrap_or(true);
+
+                let mut settings: Settings = serde_json::from_str(&raw).unwrap_or_else(|err| {
+                    tracing::warn!(?path, ?err, "preferências ilegíveis; usando os padrões");
+                    Settings::default()
+                });
+                if !tinha_o_campo {
+                    settings.onboarding_completed = true;
+                }
+                settings
+            }
             Err(_) => {
                 // Grava os padrões na primeira execução. Enquanto não há janela
                 // de preferências, o arquivo é a única forma de descobrir e
@@ -472,22 +523,40 @@ pub fn settings_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("vox-settings.json"))
 }
 
-/// Endereço da API: do ambiente, ou o padrão da LAN.
-pub fn base_url() -> String {
-    std::env::var(ENV_BASE_URL)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
+/// Endereço do servidor: o que está no painel, senão o ambiente, senão o
+/// padrão embutido.
+pub fn base_url(settings: &Settings) -> String {
+    settings
+        .api_base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            std::env::var(ENV_BASE_URL)
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
         .unwrap_or_else(|| DEFAULT_BASE_URL.to_string())
 }
 
-/// Credencial do basicAuth. Ausente é válido — a API pode estar sem `panel-auth`
-/// em algum caminho (o loopback do argos, por exemplo).
-pub fn credentials() -> Option<Credentials> {
-    let username = std::env::var(ENV_USER).ok()?;
-    let password = std::env::var(ENV_PASSWORD).ok()?;
+/// Credencial do basicAuth: o que está no painel, senão o ambiente. Ausente é
+/// válido — a maioria dos caminhos até o servidor não exige nenhuma.
+pub fn credentials(settings: &Settings) -> Option<Credentials> {
+    let username = settings
+        .api_user
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| std::env::var(ENV_USER).ok())?;
     if username.trim().is_empty() {
         return None;
     }
+    let password = settings
+        .api_password
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| std::env::var(ENV_PASSWORD).ok())
+        .unwrap_or_default();
     Some(Credentials { username, password })
 }
 

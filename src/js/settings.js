@@ -60,6 +60,9 @@ let carregando = true;
 /* Campos que são só "id do elemento" ↔ "chave do settings". O resto tem
    tratamento próprio mais abaixo. */
 const campos = {
+  apiBaseUrl: "api_base_url",
+  apiUser: "api_user",
+  apiPassword: "api_password",
   soundsEnabled: "sounds_enabled",
   startWithWindows: "start_with_windows",
   serviceEnabled: "service_enabled",
@@ -98,6 +101,7 @@ const CORES = [
 
 const SECOES = {
   geral: ["Geral", "Som, aparência e o comportamento geral do aplicativo."],
+  servidor: ["Servidor", "Pra onde o Vox manda o áudio e busca a voz de volta."],
   ditado: ["Ditado", "De onde vem o áudio, quem transcreve e como o texto é entregue."],
   ajuste: ["Ajuste por IA", "Reescrever a fala crua antes de colar — e o quanto mexer nela."],
   leitura: ["Leitura", "Voz, ritmo e como acompanhar o texto que está sendo falado."],
@@ -895,6 +899,37 @@ async function carregarGravacoes() {
 
 elemento("abrirPastaGravacoes").addEventListener("click", () => {
   invoke("open_recordings_folder").catch((erro) => mostrarFalha(String(erro)));
+});
+
+/* --------------------------------------------------------------- servidor */
+
+elemento("testarServidor").addEventListener("click", async () => {
+  const botao = elemento("testarServidor");
+  const resultado = elemento("testeServidorResultado");
+  botao.disabled = true;
+  resultado.dataset.tom = "";
+  resultado.textContent = "Testando…";
+
+  try {
+    await invoke("test_server_connection", {
+      baseUrl: elemento("apiBaseUrl").value.trim(),
+      user: elemento("apiUser").value.trim(),
+      password: elemento("apiPassword").value,
+    });
+    resultado.dataset.tom = "ok";
+    resultado.textContent = "Conectou";
+  } catch (erro) {
+    resultado.dataset.tom = "erro";
+    resultado.textContent = String(erro);
+  } finally {
+    botao.disabled = false;
+  }
+});
+
+/* Salva antes de reiniciar: o processo novo lê o disco, não a tela. */
+elemento("reiniciarPosServidor").addEventListener("click", async () => {
+  await gravar();
+  invoke("restart_app").catch((erro) => mostrarFalha(String(erro)));
 });
 
 /* -------------------------------------------------------------------- listas */

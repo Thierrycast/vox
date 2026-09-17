@@ -177,7 +177,7 @@ impl Dictation {
         // acréscimo, não um pré-requisito — perder a transcrição inteira porque
         // um enfeite não conectou seria péssimo.
         if settings.live_transcription {
-            self.spawn_live_transcription(app.clone());
+            self.spawn_live_transcription(app.clone(), settings);
         }
 
         Ok(())
@@ -229,10 +229,10 @@ impl Dictation {
     /// Roda numa tarefa própria e nunca propaga erro para o ditado: qualquer
     /// falha aqui apenas desliga o texto ao vivo e deixa o HUD com a onda, que
     /// é exatamente o comportamento de antes desta funcionalidade existir.
-    fn spawn_live_transcription(&self, app: AppHandle) {
+    fn spawn_live_transcription(&self, app: AppHandle, settings: &Settings) {
         let session = self.session.clone();
-        let base_url = crate::config::base_url();
-        let credentials = crate::config::credentials()
+        let base_url = crate::config::base_url(settings);
+        let credentials = crate::config::credentials(settings)
             .map(|creds| (creds.username, creds.password));
 
         tauri::async_runtime::spawn(async move {

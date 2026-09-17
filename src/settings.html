@@ -37,6 +37,10 @@
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.6v2M10 15.4v2M17.4 10h-2M4.6 10h-2M15.2 4.8l-1.4 1.4M6.2 13.8l-1.4 1.4M15.2 15.2l-1.4-1.4M6.2 6.2L4.8 4.8"/></svg>
       Geral
     </button>
+    <button class="nav-item" type="button" data-secao="servidor">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="3" y="3.5" width="14" height="5" rx="1.5"/><rect x="3" y="11.5" width="14" height="5" rx="1.5"/><path d="M6 6h.01M6 14h.01"/></svg>
+      Servidor
+    </button>
     <button class="nav-item" type="button" data-secao="ditado">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="7.5" y="2.5" width="5" height="9" rx="2.5"/><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5"/></svg>
       Ditado
@@ -172,6 +176,63 @@
                      botão direito no ícone da bandeja.</small>
             </span>
             <div class="controle"><button type="button" class="botao" id="reiniciarVox">Reiniciar</button></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ----------------------------------------------------- servidor -->
+      <section class="secao" data-secao="servidor">
+        <div class="aviso-dependencia">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6.5v4.5M10 13.7v.01"/><path d="M8.6 3.3a1.6 1.6 0 0 1 2.8 0l6.2 11a1.6 1.6 0 0 1-1.4 2.4H3.8a1.6 1.6 0 0 1-1.4-2.4z"/></svg>
+          <span>O Vox não fala nem ouve por conta própria — ele é um cliente pra um
+                servidor de voz compatível. Sem um endereço válido aqui, ditado e
+                leitura não funcionam. Ver o README do projeto pro que esse servidor
+                precisa expor.</span>
+        </div>
+
+        <div class="grupo">
+          <h2>Conexão</h2>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Endereço do servidor</span>
+              <small>Inclui o protocolo — <code>http://</code> ou <code>https://</code> — e a
+                     porta, se não for a padrão. Vazio usa <code>VOX_API_URL</code> do
+                     ambiente, ou o padrão embutido.</small>
+            </span>
+            <div class="controle"><input type="text" id="apiBaseUrl" spellcheck="false" placeholder="http://192.168.1.10:8010"></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Usuário</span>
+              <small>Só quando o caminho até o servidor exigir basicAuth. A maioria não
+                     precisa.</small>
+            </span>
+            <div class="controle"><input type="text" id="apiUser" spellcheck="false" autocomplete="off" placeholder="(nenhum)"></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo"><span>Senha</span></span>
+            <div class="controle"><input type="password" id="apiPassword" autocomplete="off" placeholder="(nenhuma)"></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Testar conexão</span>
+              <small>Confere o que está escrito acima agora mesmo, sem precisar salvar
+                     nem reiniciar.</small>
+            </span>
+            <div class="controle">
+              <button type="button" class="botao" id="testarServidor">Testar</button>
+              <span class="teste-resultado" id="testeServidorResultado"></span>
+            </div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Aplicar</span>
+              <small>Mudar o servidor pede um reinício — a conexão é montada uma vez, na
+                     partida.</small>
+            </span>
+            <div class="controle">
+              <button type="button" class="botao" id="reiniciarPosServidor">Salvar e reiniciar</button>
+            </div>
           </div>
         </div>
       </section>

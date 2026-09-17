@@ -74,6 +74,20 @@
         "decorations": false,
         "transparent": true,
         "shadow": false
+      },
+      {
+        "label": "onboarding",
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion",
+        "url": "onboarding.html",
+        "title": "Vox",
+        "width": 620,
+        "height": 640,
+        "resizable": false,
+        "center": true,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false
       }
     ],
     "security": {

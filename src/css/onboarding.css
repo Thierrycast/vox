@@ -1,0 +1,119 @@
+/* Vox — primeiro uso.
+ *
+ * Reaproveita os tokens e os componentes de `settings.css` (janela de vidro,
+ * `.linha`, `.rotulo`, `.botao`, `.select`, `.teste-resultado`) — é a mesma
+ * aplicação, e um assistente com cara diferente do resto pareceria um app à
+ * parte. O que este arquivo acrescenta é só a coreografia dos passos.
+ */
+
+.janela--onboarding {
+  /* Janela fixa, sem redimensionar — não precisa da altura de viewport
+     inteira que `.janela` assume por padrão. */
+  height: 640px;
+}
+
+.onboarding {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 34px 22px;
+}
+
+.onboarding-passos {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Um passo por vez. `flex` (e não `block`) para o conteúdo curto — a
+   boas-vindas, o "pronto" — poder se centralizar na vertical sem sobrar
+   espaço em branco só embaixo. */
+.passo {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1;
+  animation: entrar .3s var(--suave);
+}
+.passo[data-ativo="true"] { display: flex; }
+
+.onboarding-marca {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+.onboarding-marca strong { font-size: 21px; font-weight: 600; letter-spacing: -.02em; }
+.onboarding-marca span { font-size: 12.5px; color: var(--fg-fraco); }
+
+.passo h1 {
+  margin: 0 0 10px;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -.015em;
+}
+.passo > p {
+  margin: 0 0 12px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--fg-suave);
+  max-width: 48ch;
+}
+.passo .linha { padding: 12px 0; }
+.passo .linha + .linha { border-top: 1px solid var(--linha); }
+.passo .rotulo { max-width: none; }
+
+.onboarding-nota {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--fg-fraco);
+}
+
+.onboarding-atalhos {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.onboarding-atalho {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 13px;
+  border-radius: var(--raio);
+  background: rgba(255, 255, 255, .03);
+  font-size: 12.5px;
+}
+.onboarding-atalho span:last-child {
+  color: var(--fg-suave);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.onboarding-rodape {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--linha);
+}
+
+.onboarding-pontos { display: flex; gap: 6px; }
+.onboarding-pontos span {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .16);
+  transition: background-color .2s var(--suave), transform .2s var(--suave);
+}
+.onboarding-pontos span[data-atual="true"] {
+  background: var(--accent);
+  transform: scale(1.35);
+}
+
+.onboarding-botoes { display: flex; gap: 8px; }

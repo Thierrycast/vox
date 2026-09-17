@@ -210,7 +210,7 @@ pub fn list() -> Result<Vec<RecordingMeta>> {
         gravacoes.push(meta);
     }
 
-    gravacoes.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
+    gravacoes.sort_by_key(|gravacao| std::cmp::Reverse(gravacao.created_at_ms));
     Ok(gravacoes)
 }
 
