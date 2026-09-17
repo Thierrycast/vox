@@ -42,6 +42,18 @@
 //!
 //! `watch_hud` fecha essa lacuna rodando a mesma checagem periodicamente
 //! enquanto a janela estiver visível, não só no instante em que aparece.
+//!
+//! ## "Sempre por cima" tem o mesmo defeito de fundo
+//!
+//! `alwaysOnTop` nasce ligado no `tauri.conf.json`, mas isso é o estado
+//! inicial, não uma garantia contínua — o Windows tira o topo do z-order de
+//! quem tinha quando outra janela também topmost sobe (um vídeo em tela
+//! cheia numa aba do navegador, um instalador, um UAC), e nada devolve
+//! sozinho. Reafirmar só ao mudar de forma (`shape_hud`) cobre o caminho
+//! comum, mas deixa o mesmo buraco: um widget parado, visível, sem trocar de
+//! forma, pode ficar atrás de outra coisa indefinidamente. `watch_hud`
+//! reafirma isso também, com frequência bem maior que a checagem de pintura
+//! — é uma chamada síncrona do Win32, quase de graça.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -60,13 +72,22 @@ const PRESENCE_TIMEOUT: Duration = Duration::from_millis(900);
 /// Tentativas de acordar a página antes de desistir e só registrar.
 const PRESENCE_ATTEMPTS: u8 = 2;
 
-/// De quanto em quanto tempo o vigia confere o HUD visível.
+/// De quanto em quanto tempo o vigia reafirma "sempre por cima".
 ///
-/// Curto o suficiente pra não deixar o widget morto na tela por muito tempo;
-/// longo o suficiente pra não virar tráfego de evento constante durante um
-/// ditado ou leitura normal, que já passam a maior parte do tempo com o HUD
-/// visível e pintando sem problema nenhum.
-const WATCH_INTERVAL: Duration = Duration::from_secs(15);
+/// Barato — é só uma chamada síncrona do Win32 — então não custa nada
+/// conferir com frequência. Outra janela pode assumir o topo do z-order a
+/// qualquer momento (um vídeo em tela cheia numa aba, um instalador, um UAC),
+/// e o Vox precisa voltar pra cima logo, não só na próxima vez que mudar de
+/// forma.
+const TOPMOST_INTERVAL: Duration = Duration::from_secs(3);
+
+/// De quanto em quanto tempo o vigia confere se o HUD visível continua
+/// pintando.
+///
+/// Mais cara que a reafirmação de "sempre por cima" — envolve ida e volta até
+/// a página e uma espera — então roda com menos frequência: a cada
+/// `PAINT_CHECK_A_CADA` batimentos do temporizador de topmost.
+const PAINT_CHECK_A_CADA: u32 = 5;
 
 fn set_webview_visible(window: &WebviewWindow, visible: bool) {
     let result = window.with_webview(move |webview| {
@@ -174,26 +195,42 @@ fn confirm_paint(app: AppHandle, attempts_left: u8) {
     });
 }
 
-/// Vigia o HUD pro resto da vida do processo: a cada `WATCH_INTERVAL`,
-/// se ele estiver visível, roda a mesma checagem de pintura que `reveal()`
-/// dispara — pegando o caso em que ele para de pintar **depois** de já
-/// mostrado, sem passar por uma transição de visibilidade que acionasse a
-/// checagem sozinha.
+/// Vigia o HUD pro resto da vida do processo, enquanto ele estiver visível:
+///
+/// - a cada `TOPMOST_INTERVAL`, reafirma "sempre por cima" — sozinho isso não
+///   bastava: era reafirmado só quando a forma mudava (`shape_hud`), e uma
+///   janela visível que ficasse parada num estado (idle, ou uma leitura
+///   longa) podia perder o topo do z-order pra outra coisa e nunca recuperar
+///   até a próxima mudança de forma;
+/// - a cada `PAINT_CHECK_A_CADA` batimentos desses, roda também a checagem de
+///   pintura que `reveal()` dispara — pegando o caso em que o WebView2 para
+///   de pintar **depois** de já mostrado, sem uma transição de visibilidade
+///   que acionasse a checagem sozinha.
 ///
 /// Chamado uma vez no arranque; o `tick` que não faz nada com a janela
-/// escondida é mais simples do que ligar e desligar um temporizador próprio
-/// a cada `show`/`hide`.
+/// escondida é mais simples do que ligar e desligar temporizadores a cada
+/// `show`/`hide`.
 pub fn watch_hud(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
-        let mut batimento = tokio::time::interval(WATCH_INTERVAL);
+        let mut batimento = tokio::time::interval(TOPMOST_INTERVAL);
         // O primeiro `tick` de um `interval` novo resolve na hora; sem pular
         // ele, a primeira checagem rodaria antes mesmo do primeiro `reveal()`
         // ter chance de mostrar alguma coisa.
         batimento.tick().await;
+
+        let mut contagem: u32 = 0;
         loop {
             batimento.tick().await;
             let Some(window) = app.get_webview_window("hud") else { continue };
-            if window.is_visible().unwrap_or(false) {
+            if !window.is_visible().unwrap_or(false) {
+                continue;
+            }
+
+            let _ = window.set_always_on_top(true);
+
+            contagem += 1;
+            if contagem >= PAINT_CHECK_A_CADA {
+                contagem = 0;
                 confirm_paint(app.clone(), PRESENCE_ATTEMPTS);
             }
         }
