@@ -201,6 +201,53 @@ impl Reader {
         }
     }
 
+    /// Prepara o texto para ler, com a limpeza de modelo opcional na frente.
+    ///
+    /// É o funil das duas entradas (atalho e extensão): a limpeza transforma
+    /// unidades, símbolos e markdown em fala **antes** do preparo, e o preparo
+    /// segue igual — a limpeza é idempotente com a higiene do servidor, e o
+    /// `narrate_tables` só acha trabalho se sobrou tabela, o que depois da
+    /// limpeza quase nunca acontece.
+    pub async fn prepare_to_read(
+        &self,
+        text: &str,
+        rewrite_enabled: bool,
+        normalize: bool,
+        narrate_tables: bool,
+    ) -> String {
+        let base = if rewrite_enabled {
+            self.limpar_para_leitura(text).await
+        } else {
+            text.to_string()
+        };
+        self.prepare(&base, normalize, narrate_tables).await
+    }
+
+    /// Passa o texto pelo preset `leitura`, com prazo curto.
+    ///
+    /// Todo caminho de falha devolve o texto como veio: o servidor devolve o
+    /// original quando não aplica, e o prazo do cliente corta o travamento do
+    /// gateway (~45 s medido) para o primeiro som não ficar esperando.
+    async fn limpar_para_leitura(&self, text: &str) -> String {
+        match self.api.rewrite_for_reading(text).await {
+            Ok(resultado) => {
+                if let Some(motivo) = resultado.rewritten.error.or(resultado.rewritten.skipped) {
+                    tracing::warn!(motivo, "limpeza antes de ler não aplicada; lendo o original");
+                } else {
+                    tracing::info!(
+                        ms = resultado.rewritten.elapsed_ms,
+                        "texto limpo para leitura"
+                    );
+                }
+                resultado.text
+            }
+            Err(err) => {
+                tracing::warn!(?err, "limpeza antes de ler falhou; seguindo com o original");
+                text.to_string()
+            }
+        }
+    }
+
     /// Lê um texto do começo ao fim, preparando-o antes.
     pub async fn speak(
         &self,
@@ -252,12 +299,13 @@ impl Reader {
         // O estado vai primeiro, e só depois a janela aparece. Na ordem
         // inversa o HUD reaparecia com o último quadro do ditado ainda no DOM —
         // o "Copiado" — até o evento chegar e o player substituir o conteúdo.
-        let (abrir_leitor, com_legenda, normalizar, narrar_tabelas) = {
+        let (abrir_leitor, com_legenda, limpar_com_modelo, normalizar, narrar_tabelas) = {
             let state = app.state::<AppState>();
             let settings = state.settings.lock();
             (
                 settings.open_reader_on_read,
                 settings.reading_captions,
+                settings.reading_rewrite_enabled,
                 settings.normalize_before_reading,
                 settings.narrate_tables,
             )
@@ -298,7 +346,7 @@ impl Reader {
         let texto = if already_prepared {
             text.clone()
         } else {
-            self.prepare(&text, normalizar, narrar_tabelas).await
+            self.prepare_to_read(&text, limpar_com_modelo, normalizar, narrar_tabelas).await
         };
 
         // Parar durante o preparo invalida esta leitura.

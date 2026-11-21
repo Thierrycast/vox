@@ -82,6 +82,7 @@ const campos = {
   speed: "speed",
   prebufferRatio: "prebuffer_ratio",
   readingCaptions: "reading_captions",
+  readingRewriteEnabled: "reading_rewrite_enabled",
   normalizeBeforeReading: "normalize_before_reading",
   openReaderOnRead: "open_reader_on_read",
   customInstructions: "custom_instructions",

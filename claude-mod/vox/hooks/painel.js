@@ -286,6 +286,7 @@ function secaoLeitura(p) {
     escolha(ui, 'prebuffer', 'folga antes de tocar', folga.opcoes, folga.valor, (valor) => acoes.ajustar({ prebuffer_ratio: Number(valor) })),
     ui.Box({ key: 'amostra', marginTop: 1, children: [botao(ui, 'ouvir-amostra', 'ouvir amostra', acoes.ouvirAmostra, { hotkey: 'o' })] }),
     titulo(ui, 'titulo-texto', 'preparo do texto'),
+    alternancia(ui, 'reading-rewrite', 'limpar o texto com IA antes de ler (1 a 4 s)', prefs.reading_rewrite_enabled, () => acoes.ajustar({ reading_rewrite_enabled: !prefs.reading_rewrite_enabled })),
     alternancia(ui, 'narrate-tables', 'explicar tabelas em vez de ler célula a célula', prefs.narrate_tables, () => acoes.ajustar({ narrate_tables: !prefs.narrate_tables })),
     alternancia(ui, 'normalize', 'corrigir ortografia antes de ler (+3 a 7 s)', prefs.normalize_before_reading, () => acoes.ajustar({ normalize_before_reading: !prefs.normalize_before_reading })),
     alternancia(ui, 'reader-window', 'abrir a janela de leitura guiada junto', prefs.open_reader_on_read, () => acoes.ajustar({ open_reader_on_read: !prefs.open_reader_on_read })),

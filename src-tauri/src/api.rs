@@ -313,6 +313,36 @@ impl SpeechApi {
         response.json().await.context("ler o texto reescrito")
     }
 
+    /// Prazo da limpeza antes de ler.
+    ///
+    /// Medido no gateway do lab, texto novo: 1 a 4 s — mas com travamentos
+    /// pontuais de ~45 s, independentes de preset. Quem espera é o primeiro som
+    /// da leitura; estourado, o texto original é lido na hora e a limpeza não
+    /// deixa ninguém esperando.
+    pub const READING_REWRITE_DEADLINE: Duration = Duration::from_secs(12);
+
+    /// Limpa o texto para ser falado, no preset `leitura` do servidor.
+    ///
+    /// Igual a `rewrite_text` com três diferenças deliberadas: prazo curto no
+    /// cliente, sem modelo customizável (a escolha medida é a do servidor) e
+    /// sem intensidade (o preset não aceita).
+    pub async fn rewrite_for_reading(&self, text: &str) -> Result<RewriteResult> {
+        self.exigir_servidor()?;
+        let response = self
+            .request(reqwest::Method::POST, "/text/rewrite")
+            .timeout(Self::READING_REWRITE_DEADLINE)
+            .json(&serde_json::json!({
+                "text": text,
+                "preset": "leitura",
+            }))
+            .send()
+            .await
+            .context("pedir a limpeza antes de ler")?;
+
+        ensure_ok(&response)?;
+        response.json().await.context("ler o texto limpo")
+    }
+
     /// Os moldes de reescrita que o servidor conhece.
     ///
     /// A lista vem de lá para o painel não guardar uma cópia: um preset novo no

@@ -1006,13 +1006,14 @@ impl bridge::Acoes for AcoesDaPonte {
                 }
             }
 
-            let (voice, speed, prebuffer, normalizar, narrar_tabelas) = {
+            let (voice, speed, prebuffer, limpar_com_modelo, normalizar, narrar_tabelas) = {
                 let state = app.state::<AppState>();
                 let settings = state.settings.lock();
                 (
                     settings.voice.clone(),
                     settings.speed,
                     settings.prebuffer_ratio,
+                    settings.reading_rewrite_enabled,
                     settings.normalize_before_reading,
                     settings.narrate_tables,
                 )
@@ -1026,7 +1027,10 @@ impl bridge::Acoes for AcoesDaPonte {
             // modelo em vez de uma.
             let preparado = {
                 let state = app.state::<AppState>();
-                state.reader.prepare(&texto, normalizar, narrar_tabelas).await
+                state
+                    .reader
+                    .prepare_to_read(&texto, limpar_com_modelo, normalizar, narrar_tabelas)
+                    .await
             };
 
             // Divide aqui e devolve a mesma lista que vai ser falada. Dividir dos

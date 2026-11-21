@@ -27,6 +27,7 @@ const PREFERENCIAS = {
   speed: 1,
   prebuffer_ratio: 0.1,
   normalize_before_reading: false,
+  reading_rewrite_enabled: true,
   narrate_tables: true,
   open_reader_on_read: false,
   narration_enabled: true,
@@ -178,9 +179,14 @@ test('preferência alternada vai como ajuste de um campo só', async ($, on) => 
   const ui = await $.ui.mount({ ...PAINEL, surface: 'terminal' })
   await ui.press({ key: 'aba-leitura' })
   await ui.press({ key: 'narrate-tables' })
+  await ui.press({ key: 'reading-rewrite' })
   await ui.select({ key: 'speed', value: '1.25' })
   const ajustes = pedidos.filter((pedido) => new URL(pedido.url).pathname === '/settings' && pedido.corpo)
-  expect(ajustes.map((pedido) => pedido.corpo)).toEqual([{ narrate_tables: false }, { speed: 1.25 }])
+  expect(ajustes.map((pedido) => pedido.corpo)).toEqual([
+    { narrate_tables: false },
+    { reading_rewrite_enabled: false },
+    { speed: 1.25 },
+  ])
   await ui.unmount()
 })
 

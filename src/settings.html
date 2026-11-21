@@ -421,9 +421,23 @@
           </div>
           <div class="linha">
             <span class="rotulo">
+              <span>Limpar o texto antes de ler</span>
+              <small>Uma passagem de IA transforma o que o sintetizador leria mal — unidade
+                     abreviada, símbolo, markdown, tabela — em fala. Custa de 1 a 4 s; se o
+                     servidor demorar mais que 12 s, lê o texto como está.</small>
+            </span>
+            <div class="controle"><input type="checkbox" id="readingRewriteEnabled"></div>
+          </div>
+        </div>
+
+        <div class="grupo">
+          <h2>Avançado</h2>
+          <div class="linha">
+            <span class="rotulo">
               <span>Corrigir o texto antes de ler</span>
-              <small>Acentuação e ortografia, por um modelo. A limpeza de marcação é sempre
-                     feita e custa milissegundos; isto custa segundos antes do primeiro som.</small>
+              <small>Acentuação e ortografia, por um modelo — e não a forma de falar, que a
+                     limpeza acima já cuida. A limpeza de marcação é sempre feita e custa
+                     milissegundos; isto custa de 3 a 7 s antes do primeiro som.</small>
             </span>
             <div class="controle"><input type="checkbox" id="normalizeBeforeReading"></div>
           </div>

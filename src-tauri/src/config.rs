@@ -122,6 +122,15 @@ pub struct Settings {
     /// significar alguma coisa.
     pub narrate_tables: bool,
 
+    /// Passa o texto por uma limpeza de modelo antes de ler (preset `leitura`).
+    ///
+    /// Diferente da correção abaixo: esta não muda o que está escrito — só a
+    /// forma de falar. Unidade abreviada vira "2,0 segundos", símbolo vira
+    /// "por cento", markdown e tabela viram frases. Custa de 1 a 4 s no
+    /// gateway, com prazo curto no cliente; estourado ou travado, lê o texto
+    /// original em vez de prender o primeiro som.
+    pub reading_rewrite_enabled: bool,
+
     // --- ponte da extensão de navegador ---
     /// Sobe o servidor local que a extensão usa. Desligue para fechar a porta.
     pub bridge_enabled: bool,
@@ -299,6 +308,7 @@ impl Default for Settings {
             reading_captions: false,
             normalize_before_reading: false,
             narrate_tables: true,
+            reading_rewrite_enabled: true,
 
             bridge_enabled: true,
             bridge_port: 8765,
@@ -534,6 +544,7 @@ pub const CAMPOS_AJUSTAVEIS_PELA_PONTE: &[&str] = &[
     "prebuffer_ratio",
     "normalize_before_reading",
     "narrate_tables",
+    "reading_rewrite_enabled",
     "open_reader_on_read",
     "narration_enabled",
     "narration_auto_speak",
@@ -870,6 +881,19 @@ mod testes_da_ponte {
         assert!(!ajustado.narrate_tables);
         assert_eq!(ajustado.voice, atual.voice);
         assert_eq!(ajustado.bridge_token, atual.bridge_token);
+    }
+
+    #[test]
+    fn limpeza_de_leitura_ligada_por_padrao_e_ajustavel() {
+        let atual = Settings::default();
+        assert!(atual.reading_rewrite_enabled, "a limpeza antes de ler vem ligada");
+        let ajustado = ajustar_pela_ponte(
+            &atual,
+            &serde_json::json!({ "reading_rewrite_enabled": false }),
+        )
+        .expect("ajuste aceito");
+        assert!(!ajustado.reading_rewrite_enabled);
+        assert!(ajustado.normalize_before_reading == atual.normalize_before_reading);
     }
 
     #[test]
