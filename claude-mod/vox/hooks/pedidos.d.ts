@@ -29,12 +29,20 @@ export function montarTocar(config: Config, id: number): Pedido
 export function montarCancelar(config: Config, id: number): Pedido
 export function montarPular(config: Config): Pedido
 export function montarControle(config: Config, acao: string): Pedido
+export function montarPreferencias(config: Config): Pedido
+export function montarAjuste(config: Config, mudancas: Record<string, unknown>): Pedido
+export function montarCatalogo(config: Config): Pedido
+export function montarAbrirPreferencias(config: Config): Pedido
+export function montarAvisoSonoro(config: Config): Pedido
+export function montarReiniciar(config: Config): Pedido
+export function montarLeitura(config: Config, texto: string): Pedido
 
 export const MENSAGENS: {
   narrar: Record<number, string>
   fila: Record<number, string>
   item: Record<number, string>
   pular: Record<number, string>
+  ajuste: Record<number, string>
   simples: Record<number, string>
 }
 

@@ -1,0 +1,15 @@
+{
+  "name": "vox",
+  "owner": {
+    "name": "Thierry"
+  },
+  "metadata": {
+    "description": "Mod do Claude Code para o Vox: narração das respostas, fila e painel de preferências."
+  },
+  "plugins": [
+    {
+      "name": "vox",
+      "source": "./claude-mod/vox"
+    }
+  ]
+}

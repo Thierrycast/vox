@@ -34,6 +34,8 @@ Generalizar isso para outros provedores (Whisper local, Azure, ElevenLabs...)
 - **Leitura** (`Ctrl+Alt+L`) — o texto selecionado é lido em voz alta, com
   legenda guiada opcional (destaque palavra a palavra) e transporte
   (pausar, avançar, voltar).
+- **Pausas na leitura** — título, categoria e parágrafo são falados com
+  pausa entre eles, e "2,0s" é lido "2,0 segundos".
 - **Ajuste por IA** — a fala crua ("é... tipo assim, o que eu queria dizer")
   pode ser reescrita antes de colar, com presets (fala limpa, prompt de
   agente, mensagem profissional, tradução) e um controle de intensidade.
@@ -129,7 +131,7 @@ cada letra.
 
 ## Por que confiar nisto
 
-- **46 testes automatizados** de lógica pura (`cargo test`), sem depender de
+- **76 testes automatizados** de lógica pura (`cargo test`), sem depender de
   microfone, rede ou servidor.
 - **`cargo clippy` limpo**, sem avisos.
 - Falhas de rede, de transcrição ou de reconhecimento nunca perdem o áudio —

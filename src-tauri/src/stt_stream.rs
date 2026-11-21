@@ -348,18 +348,18 @@ mod tests {
     #[test]
     fn traduz_o_esquema_para_websocket() {
         assert_eq!(
-            websocket_url("http://100.122.39.56:8010").unwrap(),
-            "ws://100.122.39.56:8010/stt/stream"
+            websocket_url("http://192.0.2.10:8010").unwrap(),
+            "ws://192.0.2.10:8010/stt/stream"
         );
         assert_eq!(
-            websocket_url("https://speech-api.lab.home/").unwrap(),
-            "wss://speech-api.lab.home/stt/stream"
+            websocket_url("https://voz.example.com/").unwrap(),
+            "wss://voz.example.com/stt/stream"
         );
     }
 
     #[test]
     fn recusa_endereco_sem_esquema() {
-        assert!(websocket_url("100.122.39.56:8010").is_err());
+        assert!(websocket_url("192.0.2.10:8010").is_err());
     }
 
     #[test]

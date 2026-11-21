@@ -61,6 +61,34 @@ export function montarControle(config, acao) {
   return { url: url(config, `/${acao}`), init: post(config.token, {}) }
 }
 
+export function montarPreferencias(config) {
+  return { url: url(config, '/settings'), init: { headers: cabecalhos(config.token) } }
+}
+
+export function montarAjuste(config, mudancas) {
+  return { url: url(config, '/settings'), init: post(config.token, mudancas) }
+}
+
+export function montarCatalogo(config) {
+  return { url: url(config, '/settings/catalog'), init: { headers: cabecalhos(config.token) } }
+}
+
+export function montarAbrirPreferencias(config) {
+  return { url: url(config, '/settings/open'), init: post(config.token, {}) }
+}
+
+export function montarAvisoSonoro(config) {
+  return { url: url(config, '/sounds/preview'), init: post(config.token, {}) }
+}
+
+export function montarReiniciar(config) {
+  return { url: url(config, '/restart'), init: post(config.token, {}) }
+}
+
+export function montarLeitura(config, texto) {
+  return { url: url(config, '/read'), init: post(config.token, { text: texto }) }
+}
+
 /** Frases por status, para os erros que o Vox já explica por si. */
 export const MENSAGENS = {
   narrar: {
@@ -77,6 +105,10 @@ export const MENSAGENS = {
   },
   pular: {
     404: 'não há narração tocando para pular.',
+  },
+  ajuste: {
+    401: 'o token não bate. Copie de novo o token da ponte (preferências do Vox, seção Extensão) e rode /vox token <valor>.',
+    404: 'este Vox é anterior ao painel de ajustes: atualize o app para mudar preferências por aqui.',
   },
   simples: {},
 }

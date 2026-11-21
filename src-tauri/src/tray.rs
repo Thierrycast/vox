@@ -201,6 +201,10 @@ fn responder_menu(app: &AppHandle, id: &str) {
                 .try_state::<AppState>()
                 .map(|state| crate::config::base_url(&state.settings.lock()))
                 .unwrap_or_default();
+            if base.is_empty() {
+                tracing::warn!("sem servidor configurado; não há página de vozes para abrir");
+                return;
+            }
             let url = format!("{base}/vozes");
             if let Err(err) = abrir_no_navegador(&url) {
                 tracing::error!(?err, %url, "não foi possível abrir o navegador");

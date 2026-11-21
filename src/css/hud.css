@@ -11,6 +11,7 @@
 
 @property --blend     { syntax: "<number>"; inherits: true; initial-value: 1; }
 @property --spotlight { syntax: "<number>"; inherits: true; initial-value: -6; }
+@property --sentido   { syntax: "<number>"; inherits: true; initial-value: 1; }
 
 :root {
   --space-2: 2px;
@@ -262,29 +263,31 @@ body {
   height: 28px;
   animation:
     settle .45s ease-out forwards,
-    stopping-scan 1.9s linear .35s infinite;
+    stopping-scan 1.5s ease-in-out .35s infinite alternate,
+    stopping-sentido 3s linear .35s infinite;
 }
 @keyframes settle { from { --blend: 1; } to { --blend: 0; } }
 
-/* Varredura da esquerda para a direita, e só nesse sentido.
+/* Varredura de ida e volta: da esquerda para a direita e de volta.
  *
- * A referência fazia o foco vaguear (8 → 16 → 0 → 8): ele entrava, saía pela
- * direita, voltava por dentro e ia para a esquerda. Isso lê como oscilação, não
- * como progresso — e progresso é justamente o que este estado precisa dizer,
- * porque é aqui que o usuário espera a transcrição.
- *
- * Começa fora da borda esquerda e termina fora da direita, para a onda nunca
- * aparecer com o foco já no meio. */
+ * O foco entra fora da borda esquerda, atravessa a onda, sai fora da borda
+ * direita e retorna pelo mesmo caminho. Quem espera a transcrição lê o vaivém
+ * como "trabalhando", sem pressa de acabar. A cauda acompanha o sentido
+ * (`--sentido`, que troca no meio do ciclo), para a onda sempre ter direção. */
 @keyframes stopping-scan {
   from { --spotlight: -6; }
   to   { --spotlight: 43; }
+}
+@keyframes stopping-sentido {
+  0%, 49.9% { --sentido: 1; }
+  50%, 100% { --sentido: -1; }
 }
 .hud-stopping .wf-bar {
   /* `--spotlight` é a posição do foco em índice de barra; cada barra calcula a
      própria altura pela distância até ele. Sem `@property` declarando o tipo,
      o Chromium trataria as duas variáveis como texto e não interpolaria nada —
      a animação existiria e não se moveria. */
-  --diff:   calc(var(--i) - var(--spotlight));
+  --diff:   calc((var(--i) - var(--spotlight)) * var(--sentido));
   /* O foco decai devagar para trás e rápido para a frente.
    *
    * Simétrico, ele lia como um vulto indo e vindo: sem rastro, os dois sentidos

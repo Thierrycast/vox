@@ -1,7 +1,7 @@
 //! Configuração do app.
 //!
 //! Nada de credencial em código ou em arquivo versionado — a URL e o login do
-//! servidor têm um padrão embutido e podem vir do ambiente (`VOX_API_URL` e
+//! servidor podem vir do ambiente (`VOX_API_URL` e
 //! companhia), mas quem instala normalmente escolhe pelo painel, na seção
 //! "Servidor", que grava no JSON de preferências do usuário. É o mesmo
 //! arquivo que já guarda o `bridge_token` da extensão em texto puro: outra
@@ -32,21 +32,12 @@ const ENV_BASE_URL: &str = "VOX_API_URL";
 const ENV_USER: &str = "VOX_API_USER";
 const ENV_PASSWORD: &str = "VOX_API_PASSWORD";
 
-/// Caminho da API quando nada é informado.
-///
-/// Vai direto na porta publicada no tailnet, que não passa pelo Traefik e por
-/// isso não pede credencial. O caminho pela LAN
-/// (`https://speech-api.lab.home`) existe e é autenticado pelo `panel-auth`,
-/// mas exige entrada no `hosts` e só funciona em casa.
-const DEFAULT_BASE_URL: &str = "http://100.122.39.56:8010";
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     // --- servidor ---
-    /// Endereço da speech-api. Vazio cai no padrão do ambiente (`VOX_API_URL`,
-    /// depois o padrão embutido) — pensado pra quem instala o Vox sem ter um
-    /// servidor próprio ainda configurado no painel.
+    /// Endereço da speech-api. Vazio cai no ambiente (`VOX_API_URL`); sem os
+    /// dois, o Vox não tem servidor e o assistente de primeiro uso pede um.
     ///
     /// O Vox depende de um servidor compatível pra falar e ouvir; ele não
     /// embute nenhum modelo de fala. Ver "Servidor" nas preferências e o
@@ -532,6 +523,119 @@ impl Settings {
     }
 }
 
+pub const CAMPOS_AJUSTAVEIS_PELA_PONTE: &[&str] = &[
+    "service_enabled",
+    "start_with_windows",
+    "sounds_enabled",
+    "sounds_volume",
+    "theme_accent",
+    "voice",
+    "speed",
+    "prebuffer_ratio",
+    "normalize_before_reading",
+    "narrate_tables",
+    "open_reader_on_read",
+    "narration_enabled",
+    "narration_auto_speak",
+    "narration_model",
+    "narration_queue_limit",
+    "input_device",
+    "transcription_model",
+    "output_action",
+    "submit_mode",
+    "submit_keyword",
+    "submit_key",
+    "live_transcription",
+    "show_live_transcription",
+    "stt_rewrite_enabled",
+    "stt_rewrite_preset",
+    "stt_rewrite_intensity",
+    "stt_rewrite_model",
+    "vocabulary",
+    "custom_instructions",
+    "shortcuts",
+];
+
+const CAMPOS_SO_LEITURA_PELA_PONTE: &[&str] = &[
+    "bridge_enabled",
+    "bridge_port",
+    "bridge_tailscale",
+    "reading_captions",
+];
+
+pub fn visao_da_ponte(settings: &Settings) -> serde_json::Value {
+    let completo = serde_json::to_value(settings).unwrap_or_default();
+    let mut visao = serde_json::Map::new();
+    for campo in CAMPOS_AJUSTAVEIS_PELA_PONTE.iter().chain(CAMPOS_SO_LEITURA_PELA_PONTE) {
+        if let Some(valor) = completo.get(*campo) {
+            visao.insert((*campo).to_string(), valor.clone());
+        }
+    }
+    visao.insert("api_base_url".into(), serde_json::Value::String(base_url(settings)));
+    visao.insert(
+        "api_auth".into(),
+        serde_json::Value::Bool(credentials(settings).is_some()),
+    );
+    visao.insert(
+        "settings_path".into(),
+        serde_json::Value::String(settings_path().to_string_lossy().to_string()),
+    );
+    serde_json::Value::Object(visao)
+}
+
+pub fn ajustar_pela_ponte(
+    settings: &Settings,
+    mudancas: &serde_json::Value,
+) -> std::result::Result<Settings, String> {
+    let mudancas = mudancas
+        .as_object()
+        .ok_or_else(|| "o corpo precisa ser um objeto com os campos a mudar".to_string())?;
+    if mudancas.is_empty() {
+        return Err("nenhum campo para mudar".into());
+    }
+
+    let mut completo = serde_json::to_value(settings).map_err(|err| err.to_string())?;
+    let mapa = completo
+        .as_object_mut()
+        .ok_or_else(|| "preferências em formato inesperado".to_string())?;
+
+    for (campo, valor) in mudancas {
+        if !CAMPOS_AJUSTAVEIS_PELA_PONTE.contains(&campo.as_str()) {
+            return Err(format!("{campo} não muda pela ponte; use as preferências do Vox"));
+        }
+        if campo == "shortcuts" {
+            let novos = valor
+                .as_object()
+                .ok_or_else(|| "shortcuts precisa ser um objeto {comando: combinação}".to_string())?;
+            let atuais = mapa
+                .entry("shortcuts")
+                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+            let atuais = atuais
+                .as_object_mut()
+                .ok_or_else(|| "shortcuts em formato inesperado".to_string())?;
+            for (comando, combinacao) in novos {
+                let conhecido = crate::commands::Command::ALL
+                    .iter()
+                    .any(|existente| existente.id() == comando);
+                if !conhecido {
+                    return Err(format!("comando desconhecido: {comando}"));
+                }
+                if !combinacao.is_string() {
+                    return Err(format!("a combinação de {comando} precisa ser texto"));
+                }
+                atuais.insert(comando.clone(), combinacao.clone());
+            }
+            continue;
+        }
+        mapa.insert(campo.clone(), valor.clone());
+    }
+
+    let mut ajustado: Settings = serde_json::from_value(completo)
+        .map_err(|err| format!("valor inválido: {err}"))?;
+    ajustado.sanitize();
+    Ok(ajustado)
+}
+
 /// Token de 32 caracteres hexadecimais para a ponte local.
 ///
 /// Escrito à mão em vez de trazer o `rand`: o segredo protege uma porta de
@@ -569,8 +673,7 @@ pub fn settings_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("vox-settings.json"))
 }
 
-/// Endereço do servidor: o que está no painel, senão o ambiente, senão o
-/// padrão embutido.
+/// Endereço do servidor: o que está no painel, senão o ambiente, senão vazio.
 pub fn base_url(settings: &Settings) -> String {
     settings
         .api_base_url
@@ -583,7 +686,7 @@ pub fn base_url(settings: &Settings) -> String {
                 .ok()
                 .filter(|value| !value.trim().is_empty())
         })
-        .unwrap_or_else(|| DEFAULT_BASE_URL.to_string())
+        .unwrap_or_default()
 }
 
 /// Credencial do basicAuth: o que está no painel, senão o ambiente. Ausente é
@@ -730,4 +833,79 @@ pub fn transcription_prompt(settings: &Settings) -> String {
     }
 
     partes.join(" ")
+}
+
+#[cfg(test)]
+mod testes_da_ponte {
+    use super::*;
+
+    #[test]
+    fn visao_nunca_leva_token_nem_senha() {
+        let settings = Settings {
+            bridge_token: "segredo-da-ponte".into(),
+            api_password: Some("segredo-do-servidor".into()),
+            ..Default::default()
+        };
+        let texto = visao_da_ponte(&settings).to_string();
+        assert!(!texto.contains("segredo-da-ponte"));
+        assert!(!texto.contains("segredo-do-servidor"));
+        assert!(!texto.contains("bridge_token"));
+    }
+
+    #[test]
+    fn visao_traz_os_ajustaveis() {
+        let visao = visao_da_ponte(&Settings::default());
+        for campo in CAMPOS_AJUSTAVEIS_PELA_PONTE {
+            assert!(visao.get(*campo).is_some(), "faltou {campo}");
+        }
+    }
+
+    #[test]
+    fn ajuste_muda_so_o_pedido_e_normaliza() {
+        let atual = Settings::default();
+        let ajustado =
+            ajustar_pela_ponte(&atual, &serde_json::json!({ "speed": 9.0, "narrate_tables": false }))
+                .expect("ajuste aceito");
+        assert_eq!(ajustado.speed, MAX_SPEED);
+        assert!(!ajustado.narrate_tables);
+        assert_eq!(ajustado.voice, atual.voice);
+        assert_eq!(ajustado.bridge_token, atual.bridge_token);
+    }
+
+    #[test]
+    fn ajuste_recusa_campo_fora_da_lista() {
+        let atual = Settings::default();
+        for campo in ["bridge_token", "api_password", "api_base_url", "bridge_port"] {
+            let pedido = serde_json::json!({ campo: "x" });
+            assert!(ajustar_pela_ponte(&atual, &pedido).is_err(), "{campo} passou");
+        }
+    }
+
+    #[test]
+    fn ajuste_recusa_tipo_errado_sem_mexer_em_nada() {
+        let atual = Settings::default();
+        assert!(ajustar_pela_ponte(&atual, &serde_json::json!({ "speed": "rápido" })).is_err());
+        assert!(ajustar_pela_ponte(&atual, &serde_json::json!({ "submit_mode": "talvez" })).is_err());
+        assert!(ajustar_pela_ponte(&atual, &serde_json::json!([])).is_err());
+        assert!(ajustar_pela_ponte(&atual, &serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn atalho_mescla_por_comando() {
+        let mut atual = Settings::default();
+        atual.sanitize();
+        let comando = crate::commands::Command::ALL[0];
+        let outro = crate::commands::Command::ALL[1];
+        let antes_do_outro = atual.shortcuts.get(outro.id()).cloned();
+        let pedido = serde_json::json!({ "shortcuts": { comando.id(): "Ctrl+Alt+F9" } });
+        let ajustado = ajustar_pela_ponte(&atual, &pedido).expect("ajuste aceito");
+        assert_eq!(ajustado.shortcuts.get(comando.id()).map(String::as_str), Some("Ctrl+Alt+F9"));
+        assert_eq!(ajustado.shortcuts.get(outro.id()).cloned(), antes_do_outro);
+    }
+
+    #[test]
+    fn atalho_de_comando_inexistente_e_recusado() {
+        let pedido = serde_json::json!({ "shortcuts": { "nao-existe": "Ctrl+F1" } });
+        assert!(ajustar_pela_ponte(&Settings::default(), &pedido).is_err());
+    }
 }

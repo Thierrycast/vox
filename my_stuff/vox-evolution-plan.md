@@ -48,3 +48,38 @@
 - O widget não pode maximizar, virar aba nem ter sombra cortada.
 - Mudanças de UI têm teste de comportamento onde houver lógica Rust/JS e
   verificação visual manual antes do commit.
+
+## Rodada de usabilidade de 2026-11-21
+
+### Concluído
+
+- Pausa entre título, categoria e parágrafo na leitura: `split_text` lê por
+  linha (`src-tauri/src/api.rs`), com testes. Ponto só encerra frase seguido de
+  espaço (corrige "0.2.3" virando três frases).
+- Ajuste só-para-a-voz (`src-tauri/src/texto_falado.rs`): ponto final em trecho
+  sem pontuação, "2,0s" para "2,0 segundos" (ms, s, min, h), "né, né, né" para
+  um "né".
+- Animação de espera do ditado em vaivém, esquerda para direita e volta
+  (`src/css/hud.css`).
+- Endereço do servidor não é mais embutido no binário: `DEFAULT_BASE_URL`
+  removido, `.env.example`, placeholders do painel e do assistente e testes do
+  `stt_stream` sem IP nem host do lab. Sem servidor, as chamadas dizem
+  "nenhum servidor configurado" em vez de erro de URL relativa.
+
+### Não feito, com motivo
+
+- **Limpeza da leitura por modelo rápido** (ruído de Markdown, tabelas,
+  gráficos, vícios de fala além do "né"). Precisa de um molde de leitura no
+  `/text/rewrite` do servidor (fora deste repositório) e de decisão sobre o
+  modelo e o custo de latência antes do primeiro som. O app já tem
+  `normalize_before_reading` (desligado por padrão, 4 a 7 s) e `narrate_tables`.
+  Proposta: molde `leitura` com modelo de baixa latência, ligado por chave nova
+  em Leitura, com prazo máximo (se estourar, lê o original).
+- **Confirmar que o `/text/prepare` preserva quebras de linha.** Não deu para
+  medir sem a credencial do servidor; se ele achatar, a pausa por título só
+  funciona depois de corrigido lá.
+- **Posições fixas do widget** (canto X, sem arrastar): item novo, não bug.
+- **"Piscar" ao abrir o widget fora da legenda:** sem reprodução; reabrir com o
+  cenário exato se voltar.
+- Repositório ainda contém IP do lab no histórico do git (não reescrito, por
+  ordem).

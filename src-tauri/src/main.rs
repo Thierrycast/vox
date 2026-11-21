@@ -16,6 +16,7 @@ mod reading;
 mod recordings;
 mod sounds;
 mod stt_stream;
+mod texto_falado;
 mod tray;
 
 use std::sync::Arc;
@@ -1080,6 +1081,110 @@ impl bridge::Acoes for AcoesDaPonte {
 
     fn retomar(&self) {
         self.app.state::<AppState>().reader.resume(&self.app);
+    }
+
+    fn preferencias(&self) -> serde_json::Value {
+        let state = self.app.state::<AppState>();
+        let settings = state.settings.lock();
+        config::visao_da_ponte(&settings)
+    }
+
+    fn ajustar(&self, mudancas: serde_json::Value) -> Result<serde_json::Value, String> {
+        let state = self.app.state::<AppState>();
+        let (anterior, nova) = {
+            let mut settings = state.settings.lock();
+            let anterior = settings.clone();
+            let nova = config::ajustar_pela_ponte(&anterior, &mudancas)?;
+            if nova.start_with_windows != anterior.start_with_windows {
+                autostart::set(nova.start_with_windows)?;
+            }
+            nova.save().map_err(|err| err.to_string())?;
+            *settings = nova.clone();
+            (anterior, nova)
+        };
+
+        state.sounds.set_enabled(nova.sounds_enabled);
+        state.sounds.set_volume(nova.sounds_volume);
+
+        let servico_mudou = nova.service_enabled != anterior.service_enabled;
+        let atalhos_mudaram = nova.shortcuts != anterior.shortcuts && nova.service_enabled;
+        if servico_mudou || atalhos_mudaram {
+            let app = self.app.clone();
+            let ligado = nova.service_enabled;
+            let agendado = self.app.run_on_main_thread(move || {
+                if servico_mudou {
+                    aplicar_estado_do_servico(&app, ligado);
+                    return;
+                }
+                if let Err(err) = app.global_shortcut().unregister_all() {
+                    tracing::warn!(?err, "não deu para soltar os atalhos antes de registrar de novo");
+                }
+                let report = register_shortcuts(&app);
+                *app.state::<AppState>().shortcut_report.lock() = report;
+            });
+            if let Err(err) = agendado {
+                tracing::warn!(?err, "não deu para aplicar o ajuste da ponte na thread principal");
+            }
+        }
+
+        let _ = self.app.emit("vox://settings-changed", serde_json::json!({
+            "theme_accent": nova.theme_accent,
+        }));
+        let _ = self.app.emit("vox://preferencias-externas", ());
+        tracing::info!(campos = ?mudancas.as_object().map(|mapa| mapa.keys().collect::<Vec<_>>()), "preferências ajustadas pela ponte");
+
+        Ok(config::visao_da_ponte(&nova))
+    }
+
+    fn catalogo(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = serde_json::Value> + Send>> {
+        let app = self.app.clone();
+        Box::pin(async move {
+            let api = app.state::<AppState>().api.clone();
+            let vozes = match api.voices().await {
+                Ok(catalogo) => serde_json::to_value(catalogo).unwrap_or_default(),
+                Err(err) => serde_json::json!({ "error": err.to_string() }),
+            };
+            let presets = match api.rewrite_presets().await {
+                Ok(lista) => lista,
+                Err(err) => serde_json::json!({ "error": err.to_string() }),
+            };
+            let microfones = match tauri::async_runtime::spawn_blocking(audio::list_input_devices).await {
+                Ok(Ok(lista)) => serde_json::to_value(lista).unwrap_or_default(),
+                Ok(Err(err)) => serde_json::json!({ "error": err.to_string() }),
+                Err(err) => serde_json::json!({ "error": err.to_string() }),
+            };
+            let comandos = catalogo_atual(&app.state::<AppState>());
+            serde_json::json!({
+                "voices": vozes,
+                "rewrite_presets": presets,
+                "input_devices": microfones,
+                "commands": comandos,
+                "transcription_models": [
+                    { "value": "groq/whisper-large-v3-turbo", "label": "Whisper large v3 turbo" },
+                    { "value": "vosk", "label": "Vosk — local" },
+                ],
+            })
+        })
+    }
+
+    fn abrir_preferencias(&self) {
+        let app = self.app.clone();
+        if let Err(err) = self.app.run_on_main_thread(move || show_settings(&app)) {
+            tracing::warn!(?err, "não deu para abrir as preferências pela ponte");
+        }
+    }
+
+    fn tocar_aviso(&self) {
+        self.app.state::<AppState>().sounds.play(sounds::Cue::DictationSuccess);
+    }
+
+    fn reiniciar(&self) {
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            tracing::info!("reiniciando a pedido da ponte");
+            app.restart();
+        });
     }
 }
 

@@ -155,6 +155,10 @@ reinicia.
 
 ## Primeiro uso: o assistente de onboarding
 
+Não há endereço de servidor embutido no binário: sem o que está no painel ou em
+`VOX_API_URL`, o Vox fica sem servidor e as chamadas dizem isso em vez de falhar
+com um erro de rede opaco.
+
 Sem um servidor de voz configurado, o Vox não faz nada — e uma bandeja muda,
 sem nenhum aviso, é o pior jeito de descobrir isso. `onboarding.html` é uma
 janela que aparece uma vez (controlada por `settings.onboarding_completed`) e
@@ -235,6 +239,37 @@ errado, e o destaque na tela deixa de bater com o que se ouve.
 
 Se o preparo falhar, a leitura segue com o texto original — a API limpa de novo
 na síntese, então o que se perde é o corte bom, não a marcação falada.
+
+## Título, parágrafo e pausa
+
+Quem seleciona um bloco com título, categoria e parágrafo espera ouvir pausas
+entre eles. O fatiador antigo colapsava toda quebra de linha em espaço antes de
+dividir, e o "Primeiro lugar geral / Categoria Vela, Pico, Q8 / O único forte…"
+saía como uma frase só, sem fôlego.
+
+`split_text` agora lê o texto **por linha**:
+
+- uma linha curta (até 80 caracteres) sem pontuação final vira trecho próprio —
+  título, categoria, item de lista. Cada fronteira entre dois trechos é uma
+  pausa audível entre dois áudios;
+- a linha em branco fecha o trecho;
+- a linha quebrada pela largura da página (termina em vírgula, ou a próxima
+  começa em minúscula) continua na seguinte, para um PDF copiado não ser falado
+  aos pedaços;
+- o ponto só encerra frase se for seguido de espaço: "0.2.3" e "3.5" não viram
+  três frases, como viravam.
+
+O texto mostrado (legenda, destaque na página) continua o original. O que muda
+só para a voz está em `texto_falado.rs` e roda dentro de `SpeechApi::speak`: o
+trecho sem pontuação final ganha um ponto (é o que faz o sintetizador baixar o
+tom e parar), "2,0s" vira "2,0 segundos" e a muleta repetida ("né, né, né")
+vira uma só. Regras determinísticas e sem custo de rede; limpar com um modelo
+rápido (ruído de Markdown, gráfico, tabela) segue dependendo de um molde de
+leitura no servidor — ver `my_stuff/vox-evolution-plan.md`.
+
+Isto presume que o `/text/prepare` do servidor preserve as quebras de linha. Se
+ele as achatar, só o ponto de dentro das frases continua valendo, e a correção
+tem de ser feita lá.
 
 **Corrigir o texto** (acentuação, ortografia, pontuação) é outra coisa, feita por
 um modelo, e fica desligada por padrão: custa de 4 a 7 segundos por parágrafo
@@ -452,6 +487,15 @@ nomeá-lo hoje. `settings.json` guarda esse ID, não o nome cru. Uma configuraç
 salva antes dessa mudança ainda funciona, pelo casamento por nome como reserva
 — e é migrada para o ID na primeira subida depois da atualização.
 
+## Esperando o texto ser entregue
+
+Depois de soltar o ditado, a onda "derrete" e um foco de luz varre as barras da
+esquerda para a direita **e volta**, em vaivém, até o texto chegar. É o intervalo
+em que o app espera a transcrição e o ajuste por IA, e é o único em que a pessoa
+não tem outro sinal de que algo acontece. A cauda do foco acompanha o sentido
+(`--sentido`, trocado no meio do ciclo), para o movimento sempre ter direção. Com
+`prefers-reduced-motion` a onda fica parada.
+
 ## O backup de áudio
 
 Cada passo entre gravar e colar o texto pode falhar sem culpa de quem ditou:
@@ -557,6 +601,24 @@ página**, sem abrir janela. Ela fala com o Vox por um servidor local em
 `127.0.0.1:8765` — ver `extension/README.md` para instalação e para o modelo de
 ameaça, que não é decorativo: loopback é alcançável por qualquer página aberta,
 e por isso a checagem de origem e o token acontecem no servidor, antes de agir.
+
+## As preferências pela ponte
+
+O painel do mod do Claude Code (`claude-mod/vox`) mexe nas mesmas preferências
+que a janela do app, pela ponte: `GET /settings` devolve uma visão filtrada,
+`POST /settings` recebe só os campos que mudam, e `GET /settings/catalog` traz
+o que as listas precisam (vozes, microfones, moldes de reescrita, comandos com
+a falha de registro de cada um).
+
+A lista do que a ponte aceita é fechada (`CAMPOS_AJUSTAVEIS_PELA_PONTE`, em
+`config.rs`). Token da ponte, senha e endereço do servidor e porta ficam de
+fora: quem tem o token já fala com a ponte, mas trocar o servidor redirecionaria
+o áudio, e trocar a porta derrubaria a própria conexão que pediu. O ajuste é
+mesclado no `Settings` vigente, passa pelo mesmo `sanitize` e grava; os efeitos
+imediatos (serviço, atalhos, partida com o Windows, sons) são os mesmos dos
+comandos da janela, e o que mexe em atalho global roda na thread principal. A
+janela de preferências escuta `vox://preferencias-externas` e se redesenha,
+para não gravar por cima o que veio do painel.
 
 ## Estrutura
 

@@ -174,6 +174,13 @@ pub trait Acoes: Send + Sync + 'static {
 
     /// A combinação global que começa uma leitura, como `"Ctrl+Alt+L"`.
     fn atalho_de_leitura(&self) -> String;
+
+    fn preferencias(&self) -> serde_json::Value;
+    fn ajustar(&self, mudancas: serde_json::Value) -> Result<serde_json::Value, String>;
+    fn catalogo(&self) -> Pin<Box<dyn Future<Output = serde_json::Value> + Send>>;
+    fn abrir_preferencias(&self);
+    fn tocar_aviso(&self);
+    fn reiniciar(&self);
 }
 
 pub struct Config {
@@ -438,6 +445,36 @@ async fn atender(
         },
 
         ("GET", "/narrate/queue") => (200, narracao.fila().to_string()),
+
+        ("GET", "/settings") => (200, acoes.preferencias().to_string()),
+
+        ("POST", "/settings") => match serde_json::from_slice::<serde_json::Value>(&pedido.corpo) {
+            Ok(mudancas) => match acoes.ajustar(mudancas) {
+                Ok(corpo) => (200, corpo.to_string()),
+                Err(motivo) => (
+                    400,
+                    serde_json::json!({ "error": "ajuste recusado", "detail": motivo }).to_string(),
+                ),
+            },
+            Err(err) => (400, format!("{{\"error\":\"json invalido: {err}\"}}")),
+        },
+
+        ("GET", "/settings/catalog") => (200, acoes.catalogo().await.to_string()),
+
+        ("POST", "/settings/open") => {
+            acoes.abrir_preferencias();
+            (200, "{\"ok\":true}".to_string())
+        }
+
+        ("POST", "/sounds/preview") => {
+            acoes.tocar_aviso();
+            (200, "{\"ok\":true}".to_string())
+        }
+
+        ("POST", "/restart") => {
+            acoes.reiniciar();
+            (200, "{\"ok\":true}".to_string())
+        }
 
         ("POST", "/narrate/play") => match serde_json::from_slice::<PedidoId>(&pedido.corpo) {
             Ok(entrada) => match narracao.tocar(entrada.id) {

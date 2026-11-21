@@ -48,6 +48,7 @@ if (!window.__TAURI__) {
 
 const { invoke } = window.__TAURI__.core;
 const { getCurrentWindow } = window.__TAURI__.window;
+const { listen } = window.__TAURI__.event;
 
 const elemento = (id) => document.getElementById(id);
 
@@ -1039,3 +1040,13 @@ invoke("get_settings")
     verificarApi();
   })
   .catch((erro) => mostrarFalha("invoke('get_settings') falhou:\n" + String(erro)));
+
+listen("vox://preferencias-externas", async () => {
+  if (gravacaoHandle) clearTimeout(gravacaoHandle);
+  try {
+    desenhar(await invoke("get_settings"));
+    await montarAtalhos();
+  } catch (erro) {
+    mostrarFalha(String(erro));
+  }
+});

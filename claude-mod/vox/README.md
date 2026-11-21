@@ -24,13 +24,40 @@ claude --plugin-dir .        # sessão com o mod carregado
 /vox speak|hold                     # fala na hora, ou deixa pronto para dar play
 /vox label <nome>                   # rótulo desta sessão na fila
 /vox status                         # conexão e fila
-/vox painel                         # painel com transporte e fila
-/vox                                # narra a última resposta
+/vox                                # abre o painel (fila, transporte e preferências)
+/vox ultima                         # narra a última resposta
 /vox <texto>                        # narra o texto dado
 ```
 
 O token circula só localmente (loopback ou tailnet) e fica em texto plano no
 `$.store`, o mesmo status do `settings.json` do Vox — nunca em commit.
+
+## O painel
+
+`/vox` abre um painel com seis abas:
+
+- **narração**: o que está tocando, transporte (`p` pausa/retoma, `s` para,
+  `n` pula), a fila com tocar (`1`–`9`) e cancelar por item, as preferências
+  desta sessão (auto-narração, falar ou segurar, rótulo) e as do Vox (aceitar
+  narração, teto da fila, modelo da adaptação).
+- **leitura**: voz, velocidade, folga antes de tocar, `o` toca uma amostra,
+  preparo do texto (tabelas, correção, janela guiada).
+- **ditado**: microfone, modelo de transcrição, texto ao vivo, entrega (colar
+  ou copiar, envio por palavra-chave), reescrita (molde, intensidade, modelo),
+  vocabulário e instruções.
+- **atalhos**: a combinação de cada comando, aplicada na hora, com o motivo
+  quando o Windows recusa uma.
+- **geral**: Vox ativo ou em pausa, iniciar com o Windows, cor de destaque,
+  avisos sonoros e volume.
+- **conexão**: endereço e token desta máquina (`r` testa), e o que só muda no
+  app: servidor, porta e tailnet da ponte. Abre as preferências do Vox ou o
+  reinicia.
+
+As preferências do Vox vêm e vão pela ponte (`GET`/`POST /settings`, com
+`/settings/catalog` para vozes, microfones, moldes e comandos). A ponte só
+aceita os campos ajustáveis: token, senha, servidor e porta ficam de fora e
+mudam só pelo app. A janela de preferências do Vox se redesenha quando o
+painel muda algo.
 
 ## Agentes fora do Windows
 

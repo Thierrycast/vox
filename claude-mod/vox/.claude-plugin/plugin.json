@@ -1,7 +1,7 @@
 {
   "name": "vox",
-  "version": "0.1.0",
-  "description": "Narra no Vox as respostas do Claude Code: o texto da resposta final vira fala, com fila, controles e painel próprio.",
+  "version": "0.2.0",
+  "description": "Narra no Vox as respostas do Claude Code, com fila, transporte e um painel com todas as preferências do Vox.",
   "author": {
     "name": "Thierry"
   },

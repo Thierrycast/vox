@@ -153,6 +153,13 @@ impl SpeechApi {
         })
     }
 
+    fn exigir_servidor(&self) -> Result<()> {
+        if self.base_url.is_empty() {
+            bail!("nenhum servidor configurado; informe o endereço nas preferências");
+        }
+        Ok(())
+    }
+
     fn request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
         let builder = self.client.request(method, format!("{}{}", self.base_url, path));
         match &self.credentials {
@@ -172,12 +179,14 @@ impl SpeechApi {
     }
 
     pub async fn health(&self) -> Result<serde_json::Value> {
+        self.exigir_servidor()?;
         let response = self.request(reqwest::Method::GET, "/health").send().await?;
         ensure_ok(&response)?;
         Ok(response.json().await?)
     }
 
     pub async fn voices(&self) -> Result<VoiceCatalog> {
+        self.exigir_servidor()?;
         let response = self.request(reqwest::Method::GET, "/voices/names").send().await?;
         ensure_ok(&response)?;
         Ok(response.json().await?)
@@ -195,6 +204,7 @@ impl SpeechApi {
         model: &str,
         prompt: &str,
     ) -> Result<TranscriptionResponse> {
+        self.exigir_servidor()?;
         let part = reqwest::multipart::Part::bytes(wav)
             .file_name("audio.wav")
             .mime_str("audio/wav")?;
@@ -235,6 +245,7 @@ impl SpeechApi {
         normalize: bool,
         narrate_tables: bool,
     ) -> Result<String> {
+        self.exigir_servidor()?;
         let response = self
             .request(reqwest::Method::POST, "/text/prepare")
             .json(&serde_json::json!({
@@ -281,6 +292,7 @@ impl SpeechApi {
         intensity: u8,
         model: Option<&str>,
     ) -> Result<RewriteResult> {
+        self.exigir_servidor()?;
         let mut corpo = serde_json::json!({
             "text": text,
             "preset": preset,
@@ -306,6 +318,7 @@ impl SpeechApi {
     /// A lista vem de lá para o painel não guardar uma cópia: um preset novo no
     /// servidor aparece no app sem uma versão nova dele.
     pub async fn rewrite_presets(&self) -> Result<serde_json::Value> {
+        self.exigir_servidor()?;
         let response = self
             .request(reqwest::Method::GET, "/text/presets")
             .send()
@@ -316,9 +329,11 @@ impl SpeechApi {
     }
 
     pub async fn speak(&self, text: &str, voice: &str, speed: f32) -> Result<(TtsResponse, Vec<u8>)> {
+        self.exigir_servidor()?;
+        let falado = crate::texto_falado::para_a_voz(text);
         let response = self
             .request(reqwest::Method::POST, "/tts")
-            .json(&TtsRequest { text, voice, speed })
+            .json(&TtsRequest { text: &falado, voice, speed })
             .send()
             .await
             .context("pedir síntese")?;
@@ -358,28 +373,29 @@ fn ensure_ok(response: &reqwest::Response) -> Result<()> {
     bail!("a speech-api respondeu {status}");
 }
 
-/// Quebra o texto em trechos que respeitam a pontuação.
+/// Quebra o texto em trechos que respeitam a pontuação e as quebras de linha.
 ///
 /// O primeiro sai curto para o som começar rápido; os seguintes crescem, porque
 /// a partir daí o que importa é manter a fila cheia, não a latência.
+///
+/// Título e parágrafo não se misturam: uma linha curta sem pontuação final (um
+/// título, um item de lista, uma categoria) vira trecho próprio, e a linha em
+/// branco fecha o trecho. Cada fronteira dessas é uma pausa audível entre dois
+/// áudios, que é o que "ler como um bloco só" não dava.
 pub fn split_text(text: &str) -> Vec<String> {
-    let cleaned = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if cleaned.is_empty() {
-        return Vec::new();
-    }
-
-    let sentences = split_sentences(&cleaned);
     let mut chunks: Vec<String> = Vec::new();
     let mut current = String::new();
 
-    for sentence in sentences {
+    for unidade in dividir_em_unidades(text) {
         let budget = if chunks.is_empty() {
             FIRST_CHUNK_CHARS
         } else {
             CHUNK_TARGET_CHARS
         };
 
-        if !current.is_empty() && current.chars().count() + sentence.chars().count() > budget {
+        if !current.is_empty()
+            && current.chars().count() + unidade.texto.chars().count() > budget
+        {
             chunks.push(std::mem::take(&mut current));
         }
 
@@ -388,7 +404,11 @@ pub fn split_text(text: &str) -> Vec<String> {
         if !current.is_empty() {
             current.push(' ');
         }
-        current.push_str(&sentence);
+        current.push_str(&unidade.texto);
+
+        if unidade.quebra_depois {
+            chunks.push(std::mem::take(&mut current));
+        }
     }
 
     if !current.is_empty() {
@@ -397,13 +417,98 @@ pub fn split_text(text: &str) -> Vec<String> {
     chunks
 }
 
+struct Unidade {
+    texto: String,
+    quebra_depois: bool,
+}
+
+const TITULO_MAX_CHARS: usize = 80;
+
+fn termina_em_pontuacao(texto: &str) -> bool {
+    matches!(texto.trim_end().chars().last(), Some('.' | '!' | '?' | '…' | ':' | ';'))
+}
+
+/// A linha foi quebrada pela largura da página, e não por quem escreveu: ela
+/// segue na próxima, que começa em minúscula, ou termina em vírgula.
+fn linha_continua(linha: &str, seguinte: Option<&str>) -> bool {
+    if termina_em_pontuacao(linha) {
+        return false;
+    }
+    if linha.trim_end().ends_with(',') {
+        return seguinte.is_some_and(|proxima| !proxima.is_empty());
+    }
+    seguinte
+        .and_then(|proxima| proxima.chars().next())
+        .is_some_and(char::is_lowercase)
+}
+
+fn dividir_em_unidades(text: &str) -> Vec<Unidade> {
+    let linhas: Vec<String> = text
+        .lines()
+        .map(|linha| linha.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect();
+    let mut unidades: Vec<Unidade> = Vec::new();
+    let mut bloco = String::new();
+
+    for (posicao, linha) in linhas.iter().enumerate() {
+        if linha.is_empty() {
+            descarregar_bloco(&mut bloco, &mut unidades, false);
+            marcar_quebra(&mut unidades);
+            continue;
+        }
+        if !bloco.is_empty() {
+            bloco.push(' ');
+        }
+        bloco.push_str(linha);
+
+        let seguinte = linhas.get(posicao + 1).map(String::as_str);
+        if linha_continua(linha, seguinte) {
+            continue;
+        }
+        let titulo = !termina_em_pontuacao(linha) && bloco.chars().count() <= TITULO_MAX_CHARS;
+        descarregar_bloco(&mut bloco, &mut unidades, titulo);
+    }
+    descarregar_bloco(&mut bloco, &mut unidades, false);
+    unidades
+}
+
+fn descarregar_bloco(bloco: &mut String, unidades: &mut Vec<Unidade>, titulo: bool) {
+    if bloco.is_empty() {
+        return;
+    }
+    if titulo {
+        marcar_quebra(unidades);
+    }
+    for frase in split_sentences(bloco) {
+        unidades.push(Unidade { texto: frase, quebra_depois: false });
+    }
+    bloco.clear();
+    if titulo {
+        marcar_quebra(unidades);
+    }
+}
+
+fn marcar_quebra(unidades: &mut [Unidade]) {
+    if let Some(ultima) = unidades.last_mut() {
+        ultima.quebra_depois = true;
+    }
+}
+
+/// Parte em frases. O ponto só encerra frase quando é seguido de espaço ou do
+/// fim: "0.2.3" e "3,5" são números, não várias frases.
 fn split_sentences(text: &str) -> Vec<String> {
     let mut sentences = Vec::new();
     let mut current = String::new();
+    let mut caracteres = text.chars().peekable();
 
-    for character in text.chars() {
+    while let Some(character) = caracteres.next() {
         current.push(character);
-        if matches!(character, '.' | '!' | '?' | '…' | ';' | '\n') {
+        let fecha = match character {
+            '!' | '?' | '…' | ';' => true,
+            '.' => caracteres.peek().is_none_or(|proximo| proximo.is_whitespace()),
+            _ => false,
+        };
+        if fecha {
             let trimmed = current.trim();
             if !trimmed.is_empty() {
                 sentences.push(trimmed.to_string());
@@ -439,6 +544,45 @@ mod tests {
     #[test]
     fn texto_vazio_nao_gera_trecho() {
         assert!(split_text("   \n  ").is_empty());
+    }
+
+    #[test]
+    fn titulo_e_categoria_nao_se_fundem_ao_paragrafo() {
+        let texto = "Primeiro lugar geral\nCategoria Vela, Pico, Q8\n\
+                     O único forte nas duas provas ao mesmo tempo, 73% e etc.";
+        assert_eq!(
+            split_text(texto),
+            vec![
+                "Primeiro lugar geral",
+                "Categoria Vela, Pico, Q8",
+                "O único forte nas duas provas ao mesmo tempo, 73% e etc.",
+            ]
+        );
+    }
+
+    #[test]
+    fn linha_em_branco_fecha_o_trecho() {
+        let chunks = split_text("Um texto curto.\n\nOutro texto curto.");
+        assert_eq!(chunks, vec!["Um texto curto.", "Outro texto curto."]);
+    }
+
+    #[test]
+    fn quebra_pela_largura_da_pagina_nao_corta_a_frase() {
+        let chunks =
+            split_text("Esta frase foi quebrada pela\nlargura da página, e segue,\nsem parar até aqui.");
+        assert_eq!(chunks.len(), 1, "veio {chunks:?}");
+    }
+
+    #[test]
+    fn numero_com_ponto_nao_vira_varias_frases() {
+        let chunks = split_text("A versão 0.2.3 saiu hoje. Custa 3.5 reais.");
+        assert_eq!(chunks, vec!["A versão 0.2.3 saiu hoje. Custa 3.5 reais."]);
+    }
+
+    #[test]
+    fn titulo_no_comeco_deixa_o_primeiro_som_rapido() {
+        let chunks = split_text("Resumo\nUm parágrafo bem mais longo que o título, com várias palavras.");
+        assert_eq!(chunks[0], "Resumo");
     }
 
     #[test]
