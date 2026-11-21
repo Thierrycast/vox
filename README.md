@@ -46,8 +46,9 @@ Generalizar isso para outros provedores (Whisper local, Azure, ElevenLabs...)
 - **Legenda com clique** — clicar numa frase da legenda volta o áudio para lá.
 - **Painel de preferências** — translúcido, com navegação lateral, sem botão
   de salvar (cada mudança grava sozinha).
-- **Widget flutuante** — arrastável, lembra a posição por papel (ditado vs.
-  leitura), sobrevive a troca de monitor e a bloqueio de tela.
+- **Widget flutuante** — arrastável ou ancorado num ponto da tela, por papel
+  (ditado vs. leitura); lembra a posição, sobrevive a troca de monitor e a
+  bloqueio de tela.
 - **Extensão de navegador** (Chromium) — lê com destaque na própria página,
   sem abrir janela nenhuma. Ver `extension/README.md`.
 
@@ -102,7 +103,7 @@ A maior parte é pelo painel (`Ctrl+Alt+O`):
 | Vocabulário | termos e instruções que o reconhecedor recebe como contexto |
 | Gravações | o backup de áudio: reenviar, copiar, salvar, excluir |
 | Atalhos | toda combinação global, com detecção de conflito |
-| Widget | onde a pílula flutuante fica |
+| Widget | onde a pílula flutuante fica: âncora por papel ou arraste livre |
 | Extensão | a ponte local que o navegador usa |
 
 Para automação/deploy, as mesmas três coisas do servidor aceitam variável de

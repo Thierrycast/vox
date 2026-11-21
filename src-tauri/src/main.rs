@@ -95,6 +95,13 @@ fn hud_presence(request: u64) {
     presence::confirm(request);
 }
 
+/// A página desenhou o estado que o backend pediu antes de aparecer. Ver
+/// `revelar_quando_pronto` em `dictation.rs`.
+#[tauri::command]
+fn hud_ready(pedido: u64) {
+    dictation::confirmar_hud_pronto(pedido);
+}
+
 #[tauri::command]
 fn get_settings(state: State<'_, AppState>) -> Settings {
     state.settings.lock().clone()
@@ -111,11 +118,12 @@ fn save_settings(
     // As posições do widget são da janela, não do painel. O painel manda o
     // `Settings` que carregou ao abrir; arrastar a pílula com ele aberto e depois
     // mexer em qualquer opção gravava de volta a posição velha.
-    {
+    let anterior = {
         let vigente = state.settings.lock();
         settings.hud_position_dictation = vigente.hud_position_dictation;
         settings.hud_position_reading = vigente.hud_position_reading;
-    }
+        vigente.clone()
+    };
 
     settings.save().map_err(|err| err.to_string())?;
 
@@ -127,10 +135,15 @@ fn save_settings(
     }
 
     // As outras janelas precisam saber: a cor de destaque vale para o realce da
-    // palavra na pílula, e quem acabou de escolhê-la está olhando para ela.
+    // palavra na pílula, e quem acabou de escolhê-la está olhando para ela. A
+    // âncora do widget, porque o HUD desliga o arraste no ato.
     let _ = app.emit("vox://settings-changed", serde_json::json!({
         "theme_accent": settings.theme_accent,
+        "hud_placement_dictation": settings.hud_placement_dictation,
+        "hud_placement_reading": settings.hud_placement_reading,
     }));
+
+    reaplicar_ancora_do_widget(&app, &anterior, &settings);
 
     *state.settings.lock() = settings;
     Ok(())
@@ -329,13 +342,15 @@ fn settings_path() -> String {
     config::settings_path().to_string_lossy().to_string()
 }
 
-/// Esquece a posição guardada do widget e o devolve ao lugar de origem.
+/// Esquece a posição guardada e a âncora do widget: volta ao padrão de origem.
 #[tauri::command]
 fn reset_hud_position(app: AppHandle, state: State<'_, AppState>) {
     {
         let mut settings = state.settings.lock();
         settings.hud_position_dictation = None;
         settings.hud_position_reading = None;
+        settings.hud_placement_dictation = config::HudPlacement::Livre;
+        settings.hud_placement_reading = config::HudPlacement::Livre;
         if let Err(err) = settings.save() {
             tracing::warn!(?err, "não deu para esquecer a posição do widget");
         }
@@ -373,6 +388,41 @@ fn open_settings(app: AppHandle) {
     show_settings(&app);
 }
 
+/// Reposiciona o widget na tela quando a âncora de um papel acabou de mudar.
+///
+/// Escondida, a janela nem precisa — `shape_hud` lê a preferência na próxima
+/// vez que aparecer. Visível e parada no lugar antigo, o painel teria dito que
+/// mudou e nada na tela teria acontecido.
+fn reaplicar_ancora_do_widget(
+    app: &AppHandle,
+    anterior: &crate::config::Settings,
+    nova: &crate::config::Settings,
+) {
+    if anterior.hud_placement_dictation == nova.hud_placement_dictation
+        && anterior.hud_placement_reading == nova.hud_placement_reading
+    {
+        return;
+    }
+    let Some(window) = app.get_webview_window("hud") else { return };
+    if !window.is_visible().unwrap_or(false) {
+        return;
+    }
+    match dictation::current_role() {
+        Some(dictation::HudRole::Dictation) => {
+            dictation::shape_hud(app, dictation::HudShape::Bar);
+        }
+        Some(dictation::HudRole::Reading) => {
+            let com_legenda = app.state::<AppState>().settings.lock().reading_captions;
+            dictation::shape_hud(app, if com_legenda {
+                dictation::HudShape::ColumnCaptions
+            } else {
+                dictation::HudShape::Column
+            });
+        }
+        None => {}
+    }
+}
+
 /// Mostra o widget em repouso, sem iniciar ditado ou leitura — ou esconde,
 /// se ele já estava assim. É um alternador, e não um "sempre mostrar": o
 /// mesmo atalho que traz o widget à tela precisa ser o que tira, senão ele
@@ -380,8 +430,9 @@ fn open_settings(app: AppHandle) {
 ///
 /// Só alterna quando não há nada acontecendo de verdade. Com um ditado ou
 /// uma leitura em curso — ou só concluída/falha, mas ainda na tela — o
-/// widget já está lá por um motivo: apertar o atalho de novo reafirma que
-/// ele apareça, mas não o esconde por baixo do que está em andamento.
+/// widget já está lá por um motivo: apertar o atalho de novo não faz nada,
+/// em vez de trocar a forma de quem está trabalhando por uma barra de
+/// repouso.
 ///
 /// Usada tanto pelo comando do painel (`show_floating_widget`) quanto pelo
 /// atalho global `Ctrl+Alt+V` (`Command::ShowWidget`) — as duas entradas
@@ -395,16 +446,22 @@ fn toggle_floating_widget(app: &AppHandle) {
         // só `stop()` (chamado à parte) volta o estado a `Idle` e esconde.
         || state.reader.state() != reading::ReadingState::Idle;
 
-    if !ocupado {
-        let ocioso_visivel = app
-            .get_webview_window("hud")
-            .and_then(|janela| janela.is_visible().ok())
-            .unwrap_or(false)
-            && dictation::current_role() == Some(dictation::HudRole::Dictation);
-        if ocioso_visivel {
-            dictation::hide_hud(app, dictation::HudRole::Dictation);
-            return;
-        }
+    // Com algo em curso o atalho não mexe em nada. O widget em curso já está
+    // na tela por um motivo — e o caminho antigo chamava `show_idle_hud`,
+    // que trocava a forma: a pílula da leitura virava uma barra de repouso
+    // com a voz ainda falando, perdendo o transporte no meio da leitura.
+    if ocupado {
+        return;
+    }
+
+    let ocioso_visivel = app
+        .get_webview_window("hud")
+        .and_then(|janela| janela.is_visible().ok())
+        .unwrap_or(false)
+        && dictation::current_role() == Some(dictation::HudRole::Dictation);
+    if ocioso_visivel {
+        dictation::hide_hud(app, dictation::HudRole::Dictation);
+        return;
     }
 
     dictation::show_idle_hud(app);
@@ -1127,8 +1184,23 @@ impl bridge::Acoes for AcoesDaPonte {
             }
         }
 
+        let ancoras_mudaram = nova.hud_placement_dictation != anterior.hud_placement_dictation
+            || nova.hud_placement_reading != anterior.hud_placement_reading;
+        if ancoras_mudaram {
+            let app = self.app.clone();
+            let anterior_para_ancora = anterior.clone();
+            let nova_para_ancora = nova.clone();
+            if let Err(err) = self.app.run_on_main_thread(move || {
+                reaplicar_ancora_do_widget(&app, &anterior_para_ancora, &nova_para_ancora);
+            }) {
+                tracing::warn!(?err, "não deu para reancorar o widget pela ponte na thread principal");
+            }
+        }
+
         let _ = self.app.emit("vox://settings-changed", serde_json::json!({
             "theme_accent": nova.theme_accent,
+            "hud_placement_dictation": nova.hud_placement_dictation,
+            "hud_placement_reading": nova.hud_placement_reading,
         }));
         let _ = self.app.emit("vox://preferencias-externas", ());
         tracing::info!(campos = ?mudancas.as_object().map(|mapa| mapa.keys().collect::<Vec<_>>()), "preferências ajustadas pela ponte");
@@ -1509,6 +1581,7 @@ fn main() {
             audio_levels,
             hud_timings,
             hud_presence,
+            hud_ready,
             get_settings,
             save_settings,
             list_input_devices,
@@ -1750,10 +1823,26 @@ fn main() {
                     let app = window.app_handle();
                     let app_state = app.state::<AppState>();
                     let mut settings = app_state.settings.lock();
+                    let ancorado = match papel {
+                        dictation::HudRole::Dictation => {
+                            settings.hud_placement_dictation != config::HudPlacement::Livre
+                        }
+                        dictation::HudRole::Reading => {
+                            settings.hud_placement_reading != config::HudPlacement::Livre
+                        }
+                    };
                     let campo = match papel {
                         dictation::HudRole::Dictation => &mut settings.hud_position_dictation,
                         dictation::HudRole::Reading => &mut settings.hud_position_reading,
                     };
+                    // Ancorado não guarda arraste: o ponto fixo manda, e a
+                    // janela nem sai do lugar para o `Moved` chegar aqui. A
+                    // guarda existe para o movimento que vier de fora do app —
+                    // gravar um lugar que ninguém escolheu seria uma lembrança
+                    // fantasma esperando a âncora voltar a ser "livre".
+                    if ancorado {
+                        return;
+                    }
                     if *campo != Some(guardar) {
                         *campo = Some(guardar);
                         if let Err(error) = settings.save() {

@@ -34,7 +34,7 @@ O token circula só localmente (loopback ou tailnet) e fica em texto plano no
 
 ## O painel
 
-`/vox` abre um painel com seis abas:
+`/vox` abre um painel com sete abas:
 
 - **narração**: o que está tocando, transporte (`p` pausa/retoma, `s` para,
   `n` pula), a fila com tocar (`1`–`9`) e cancelar por item, as preferências
@@ -45,6 +45,8 @@ O token circula só localmente (loopback ou tailnet) e fica em texto plano no
 - **ditado**: microfone, modelo de transcrição, texto ao vivo, entrega (colar
   ou copiar, envio por palavra-chave), reescrita (molde, intensidade, modelo),
   vocabulário e instruções.
+- **widget**: âncora da barra do ditado e da pílula da leitura — livre
+  (arrastar e lembrar o lugar) ou fixa num canto/centro de borda da tela.
 - **atalhos**: a combinação de cada comando, aplicada na hora, com o motivo
   quando o Windows recusa uma.
 - **geral**: Vox ativo ou em pausa, iniciar com o Windows, cor de destaque,

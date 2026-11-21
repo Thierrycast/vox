@@ -2,6 +2,7 @@ export const SECOES = [
   { id: 'narracao', rotulo: 'narração' },
   { id: 'leitura', rotulo: 'leitura' },
   { id: 'ditado', rotulo: 'ditado' },
+  { id: 'widget', rotulo: 'widget' },
   { id: 'atalhos', rotulo: 'atalhos' },
   { id: 'geral', rotulo: 'geral' },
   { id: 'conexao', rotulo: 'conexão' },
@@ -310,6 +311,27 @@ const ROTULOS_DE_INTENSIDADE = [
   { value: '2', label: '2 · equilibrada' },
   { value: '3', label: '3 · reescreve à vontade' },
 ]
+const ROTULOS_DE_ANCORA = [
+  { value: 'livre', label: 'livre — arrastar' },
+  { value: 'topo-esquerda', label: 'canto superior esquerdo' },
+  { value: 'topo-centro', label: 'topo, centro' },
+  { value: 'topo-direita', label: 'canto superior direito' },
+  { value: 'meio-esquerda', label: 'borda esquerda, meio' },
+  { value: 'meio-direita', label: 'borda direita, meio' },
+  { value: 'baixo-esquerda', label: 'canto inferior esquerdo' },
+  { value: 'baixo-centro', label: 'base, centro' },
+  { value: 'baixo-direita', label: 'canto inferior direito' },
+]
+
+function secaoWidget(p) {
+  const { ui, prefs, acoes } = p
+  if (!prefs) return [semVox(p, 'widget-sem-vox')]
+  return [
+    dica(ui, 'widget-ajuda', 'livre deixa arrastar e lembra o lugar; o resto fixa o ponto da tela e o arraste não move.'),
+    escolha(ui, 'ancora-ditado', 'barra do ditado', comAtual(ROTULOS_DE_ANCORA, prefs.hud_placement_dictation), String(prefs.hud_placement_dictation ?? 'livre'), (valor) => acoes.ajustar({ hud_placement_dictation: valor })),
+    escolha(ui, 'ancora-leitura', 'pílula da leitura', comAtual(ROTULOS_DE_ANCORA, prefs.hud_placement_reading), String(prefs.hud_placement_reading ?? 'livre'), (valor) => acoes.ajustar({ hud_placement_reading: valor })),
+  ]
+}
 
 function secaoDitado(p) {
   const { ui, prefs, catalogo, acoes, colunas } = p
@@ -444,6 +466,7 @@ const DESENHO_DA_SECAO = {
   narracao: secaoNarracao,
   leitura: secaoLeitura,
   ditado: secaoDitado,
+  widget: secaoWidget,
   atalhos: secaoAtalhos,
   geral: secaoGeral,
   conexao: secaoConexao,

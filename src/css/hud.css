@@ -108,6 +108,11 @@ body {
     inset 0 0 0 1px  rgba(255, 255, 255, .10);
 }
 
+/* Ancorado, o arraste desliga: o backend recoloca a janela no ponto fixo a cada
+   forma, e deixar a pessoa arrastar seria prometer o que não acontece. */
+body[data-ancora="fixa"] .hud,
+body[data-ancora="fixa"] .player { -webkit-app-region: no-drag; }
+
 /* Todos os estados do HUD têm a mesma largura.
  *
  * Antes o "Copiado" era `width: auto` e nascia bem menor que a barra da onda: a

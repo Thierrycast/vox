@@ -275,6 +275,10 @@ function desenharRepouso() {
 listen("vox://hud", (event) => {
   const payload = event.payload ?? {};
 
+  papelAtual = "ditado";
+  aplicarAncora();
+  confirmarDesenho(payload.pronto);
+
   switch (payload.state) {
     case "idle":
       desenharRepouso();
@@ -363,19 +367,47 @@ function aplicarCorDeDestaque(cor) {
 }
 
 /* A preferência é lida uma vez, na partida: a pílula precisa nascer do tamanho
-   certo na primeira leitura, e não crescer depois que ela já apareceu. */
+   certo na primeira leitura, e não crescer depois que ela já apareceu. A âncora
+   vem junto porque decide se o arraste existe antes da primeira forma chegar. */
+const ancoras = { ditado: "livre", leitura: "livre" };
+let papelAtual = "ditado";
+
+function aplicarAncora() {
+  document.body.dataset.ancora = ancoras[papelAtual] === "livre" ? "livre" : "fixa";
+}
+
 invoke("get_settings")
   .then((settings) => {
     captionsEnabled = Boolean(settings?.reading_captions);
+    ancoras.ditado = settings?.hud_placement_dictation ?? "livre";
+    ancoras.leitura = settings?.hud_placement_reading ?? "livre";
     aplicarCorDeDestaque(settings?.theme_accent);
+    aplicarAncora();
   })
   .catch(() => {});
 
 /* O painel grava e avisa. Sem isto, trocar a cor só valeria no próximo início do
-   app — e a pessoa está justamente olhando para o widget quando escolhe. */
+   app — e a pessoa está justamente olhando para o widget quando escolhe. A
+   âncora muda junto, para o arraste desligar na hora e não na próxima vez que
+   o widget aparecer. */
 listen("vox://settings-changed", (event) => {
   aplicarCorDeDestaque(event.payload?.theme_accent);
+  if (typeof event.payload?.hud_placement_dictation === "string") {
+    ancoras.ditado = event.payload.hud_placement_dictation;
+  }
+  if (typeof event.payload?.hud_placement_reading === "string") {
+    ancoras.leitura = event.payload.hud_placement_reading;
+  }
+  aplicarAncora();
 });
+
+/* O backend só mostra a janela depois desta resposta: ela sai do manipulador
+   do evento, com o DOM já trocado, e o primeiro quadro visível é o conteúdo
+   novo — sem o piscar do quadro velho. */
+function confirmarDesenho(pedido) {
+  if (typeof pedido !== "number") return;
+  invoke("hud_ready", { pedido }).catch(() => {});
+}
 
 /* Quebra a frase em palavras com a fração em que cada uma começa e termina.
  *
@@ -796,7 +828,13 @@ listen("vox://reading", (event) => {
 });
 
 listen("vox://reading", (event) => {
-  const state = event.payload?.state;
+  const payload = event.payload ?? {};
+  const state = payload.state;
+
+  papelAtual = "leitura";
+  aplicarAncora();
+  confirmarDesenho(payload.pronto);
+
   if (!state) return;
 
   if (state === "idle") {
