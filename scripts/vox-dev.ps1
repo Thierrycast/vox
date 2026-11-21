@@ -29,7 +29,7 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $manifestPath = Join-Path $repoRoot "src-tauri\Cargo.toml"
-$exePath = Join-Path $repoRoot "src-tauri\target\release\vox.exe"
+$exePath = Join-Path $repoRoot "src-tauri\target\release-rapido\vox.exe"
 $launcherLog = Join-Path $env:APPDATA "vox\config\launcher.log"
 
 # O que, mudando, torna o binario velho. Ficam de fora `target` (saida) e o
@@ -83,7 +83,7 @@ function Get-LatestSourceChange {
 }
 
 function Invoke-CargoBuild {
-    & cargo build --release --manifest-path $manifestPath
+    & cargo build --profile release-rapido --manifest-path $manifestPath
     return ($LASTEXITCODE -eq 0)
 }
 
