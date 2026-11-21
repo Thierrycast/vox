@@ -24,7 +24,11 @@
 //!
 //! Duas barreiras, as duas verificadas no servidor, antes de qualquer ação:
 //!
-//! 1. **`Origin` tem que ser `chrome-extension://`.** Corta toda página web.
+//! 1. **`Origin`, quando existe, tem que ser `chrome-extension://`.** Corta
+//!    toda página web. Pedido **sem** `Origin` passou a ser aceito: o navegador
+//!    anexa `Origin` em todo POST, então sem o cabeçalho não é página — é um
+//!    programa local (a página de opções da extensão, o mod do Claude Code),
+//!    e quem o barra é o token, a barreira seguinte.
 //! 2. **Token no cabeçalho `X-Vox-Token`.** Corta outras extensões e qualquer
 //!    programa local que descubra a porta.
 
@@ -112,6 +116,34 @@ struct RespostaLeitura {
     segments: Vec<String>,
 }
 
+/// Um pedido de narração: a resposta final de um agente de CLI.
+///
+/// `source` é o rótulo que o painel do mod mostra ao lado do item ("claude
+/// na pasta vox"), e `mode` diz se fala sozinho ao chegar ao topo (`speak`)
+/// ou fica pronto esperando o play (`hold`). Ambos opcionais: sem eles valem
+/// os padrões das preferências do Vox.
+#[derive(Deserialize)]
+pub struct PedidoNarracao {
+    pub text: String,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub mode: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PedidoId {
+    id: u64,
+}
+
+/// Por que um pedido de narração não foi aceito.
+#[derive(Debug, Clone, Copy)]
+pub enum NarrarErro {
+    /// Narração desligada nas preferências, ou o serviço em pausa.
+    Desligado,
+    FilaCheia,
+}
+
 /// O que o servidor precisa saber fazer, sem depender do resto do app.
 ///
 /// Fica como traço para o módulo não puxar o estado inteiro do app — e para o
@@ -129,6 +161,8 @@ pub trait Acoes: Send + Sync + 'static {
     /// produz um tipo que possa ser embrulhado assim sem uma dependência a mais.
     fn ler(&self, texto: String) -> Pin<Box<dyn Future<Output = Vec<String>> + Send>>;
     fn parar(&self);
+    fn pausar(&self);
+    fn retomar(&self);
 
     /// O Vox está respondendo aos comandos, ou em pausa?
     ///
@@ -143,19 +177,50 @@ pub trait Acoes: Send + Sync + 'static {
 }
 
 pub struct Config {
+    /// Onde escutar. `127.0.0.1` é o usual; o listener do Tailscale usa o IP
+    /// da tailnet para alcançar WSL em modo NAT e as máquinas remotas.
+    pub endereco: String,
     pub porta: u16,
     pub token: String,
 }
 
-/// Sobe o servidor. Só retorna se o listener não puder ser aberto.
-pub async fn servir(config: Config, estado: Arc<BridgeState>, acoes: Arc<dyn Acoes>) -> Result<()> {
-    // Só loopback. Escutar em 0.0.0.0 exporia o comando de fala para a rede
-    // inteira, e não há caso de uso para isso.
-    let listener = TcpListener::bind(("127.0.0.1", config.porta))
-        .await
-        .with_context(|| format!("abrir a porta {} da ponte", config.porta))?;
+/// O que a ponte precisa saber fazer com pedidos de narração.
+///
+/// Mesma forma do `Acoes`: um traço para o módulo não puxar o app inteiro e
+/// para o teste passar um dublê. As respostas já vêm em JSON, porque o que
+/// muda entre "tocou" e "promovido" é apresentação, não mecânica.
+pub trait AcoesNarracao: Send + Sync + 'static {
+    /// Enfileira a resposta e devolve o corpo de sucesso (`id`, posição).
+    fn narrar(
+        &self,
+        pedido: PedidoNarracao,
+    ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, NarrarErro>> + Send>>;
+    /// A fila inteira para desenhar: corrente e pendentes.
+    fn fila(&self) -> serde_json::Value;
+    /// Manda um item tocar. `None` é "não existe" (404).
+    fn tocar(&self, id: u64) -> Option<serde_json::Value>;
+    /// Cancela um item. `None` é "não existe" (404).
+    fn cancelar(&self, id: u64) -> Option<serde_json::Value>;
+    /// Pula o corrente. `false` quando não havia nada tocando.
+    fn pular(&self) -> bool;
+}
 
-    tracing::info!(porta = config.porta, "ponte da extensão no ar");
+/// Sobe o servidor. Só retorna se o listener não puder ser aberto.
+pub async fn servir(
+    config: Config,
+    estado: Arc<BridgeState>,
+    acoes: Arc<dyn Acoes>,
+    narracao: Arc<dyn AcoesNarracao>,
+) -> Result<()> {
+    // O endereço vem na configuração, e não fixo: a ponte do Tailscale escuta
+    // no IP da tailnet (WSL em modo NAT e máquinas remotas não alcançam o
+    // loopback do Windows), e 0.0.0.0 continua fora de questão — exporia o
+    // comando de fala para a rede inteira.
+    let listener = TcpListener::bind((config.endereco.as_str(), config.porta))
+        .await
+        .with_context(|| format!("abrir {}:{} da ponte", config.endereco, config.porta))?;
+
+    tracing::info!(endereco = %config.endereco, porta = config.porta, "ponte no ar");
 
     let token = Arc::new(config.token);
     loop {
@@ -169,8 +234,9 @@ pub async fn servir(config: Config, estado: Arc<BridgeState>, acoes: Arc<dyn Aco
         let token = token.clone();
         let estado = estado.clone();
         let acoes = acoes.clone();
+        let narracao = narracao.clone();
         tokio::spawn(async move {
-            if let Err(err) = atender(socket, &token, &estado, acoes.as_ref()).await {
+            if let Err(err) = atender(socket, &token, &estado, acoes.as_ref(), narracao.as_ref()).await {
                 tracing::debug!(?err, "conexão da ponte encerrada com erro");
             }
         });
@@ -245,8 +311,7 @@ fn encontrar(agulha: &[u8], padrao: &[u8]) -> Option<usize> {
     agulha.windows(padrao.len()).position(|janela| janela == padrao)
 }
 
-/// Só extensão de Chromium. Uma página web tem `Origin` do site dela e cai aqui.
-/// Quem pode falar com a ponte, e por que a regra depende do método.
+/// Só extensão de Chromium quando há `Origin`; sem `Origin`, passa.
 ///
 /// A checagem de origem existe para uma coisa só: impedir que uma **página web**
 /// mande o computador falar. Loopback não é fronteira de confiança — qualquer
@@ -254,22 +319,15 @@ fn encontrar(agulha: &[u8], padrao: &[u8]) -> Option<usize> {
 /// efeito. Contra outros programas da máquina quem defende é o token.
 ///
 /// O navegador manda `Origin` sempre que o método não é GET/HEAD, e sempre que o
-/// pedido é `cors` — que é o padrão de um `fetch`. Ou seja: **uma página web não
-/// consegue fazer um POST sem `Origin`**. Isso separa as duas regras:
-///
-/// - **POST** muda estado (fala, para). Exige `chrome-extension://`.
-/// - **GET** só lê (saúde, progresso). Aceita origem ausente.
-///
-/// Essa distinção não é preciosismo: a página de opções da extensão faz um GET
-/// simples, e o Chrome **não** anexa `Origin` nele. A regra antiga recusava com
-/// 403 justamente o teste de "salvar e testar" — o primeiro contato de quem
-/// acabou de instalar a extensão.
-fn origem_permitida(metodo: &str, origem: Option<&str>) -> bool {
+/// pedido é `cors` — que é o padrão de um `fetch`. Uma página web, portanto,
+/// **não consegue fazer um POST sem `Origin`**: o cabeçalho ausente só existe
+/// para programas locais — a página de opções da extensão, que o Chrome não
+/// autentica em GET simples, e o mod do Claude Code, que fala com a ponte de
+/// dentro do processo do agente. Ambos chegam ao token, a barreira de verdade.
+fn origem_permitida(origem: Option<&str>) -> bool {
     match origem {
         Some(valor) => valor.starts_with("chrome-extension://"),
-        // Sem `Origin` não veio de uma página. Um programa local chega até aqui e
-        // é o token que o barra, uma checagem adiante.
-        None => metodo == "GET",
+        None => true,
     }
 }
 
@@ -278,6 +336,7 @@ async fn atender(
     token_esperado: &str,
     estado: &BridgeState,
     acoes: &dyn Acoes,
+    narracao: &dyn AcoesNarracao,
 ) -> Result<()> {
     let pedido = ler_requisicao(&mut socket).await?;
     let origem = pedido.origem.as_deref();
@@ -285,7 +344,7 @@ async fn atender(
     // O preflight responde antes da checagem de token: o navegador o manda sem
     // cabeçalhos nossos, por definição. A origem, essa sim, já vale aqui.
     if pedido.metodo == "OPTIONS" {
-        let resposta = if origem_permitida("POST", origem) {
+        let resposta = if origem_permitida(origem) {
             responder(204, "", origem)
         } else {
             responder(403, "", None)
@@ -294,7 +353,7 @@ async fn atender(
         return Ok(());
     }
 
-    if !origem_permitida(&pedido.metodo, origem) {
+    if !origem_permitida(origem) {
         tracing::warn!(?origem, caminho = %pedido.caminho, "ponte recusou a origem");
         // A mensagem diz o que aconteceu **e** o que fazer. Um "403" sozinho
         // manda a pessoa adivinhar, e ela adivinha errado: da primeira vez que
@@ -334,6 +393,84 @@ async fn atender(
         ("POST", "/stop") => {
             acoes.parar();
             (200, "{\"ok\":true}".to_string())
+        }
+
+        ("POST", "/pause") => {
+            acoes.pausar();
+            (200, "{\"ok\":true}".to_string())
+        }
+
+        ("POST", "/resume") => {
+            acoes.retomar();
+            (200, "{\"ok\":true}".to_string())
+        }
+
+        // Narração: a resposta final de um agente de CLI, pela fila.
+        //
+        // O POST responde na hora, sem esperar a adaptação nem a fala: quem
+        // chama é um mod dentro do processo do agente, e o pedido não pode
+        // segurar o turno dele. O que acontece depois é acompanhado pela
+        // rota de fila, que devolve corrente e pendentes.
+        ("POST", "/narrate") => match serde_json::from_slice::<PedidoNarracao>(&pedido.corpo) {
+            Ok(entrada) if !entrada.text.trim().is_empty() => {
+                let saida = narracao
+                    .narrar(entrada)
+                    .await
+                    .map(|corpo| (200, corpo.to_string()));
+                match saida {
+                    Ok(resposta) => resposta,
+                    Err(NarrarErro::Desligado) => (
+                        403,
+                        "{\"error\":\"narracao desligada\",\"detail\":\"Ligue Narração nas \
+                         preferências do Vox, e confira se o serviço não está em pausa.\"}"
+                            .to_string(),
+                    ),
+                    Err(NarrarErro::FilaCheia) => (
+                        429,
+                        "{\"error\":\"fila cheia\",\"detail\":\"Cancele um item no painel ou \
+                         espere a fila andar.\"}"
+                            .to_string(),
+                    ),
+                }
+            }
+            Ok(_) => (400, "{\"error\":\"texto vazio\"}".to_string()),
+            Err(err) => (400, format!("{{\"error\":\"json invalido: {err}\"}}")),
+        },
+
+        ("GET", "/narrate/queue") => (200, narracao.fila().to_string()),
+
+        ("POST", "/narrate/play") => match serde_json::from_slice::<PedidoId>(&pedido.corpo) {
+            Ok(entrada) => match narracao.tocar(entrada.id) {
+                Some(corpo) => (200, corpo.to_string()),
+                None => (
+                    404,
+                    "{\"error\":\"item inexistente\",\"detail\":\"Ele já tocou, foi cancelado \
+                     ou nunca existiu.\"}"
+                        .to_string(),
+                ),
+            },
+            Err(err) => (400, format!("{{\"error\":\"json invalido: {err}\"}}")),
+        },
+
+        ("POST", "/narrate/cancel") => match serde_json::from_slice::<PedidoId>(&pedido.corpo) {
+            Ok(entrada) => match narracao.cancelar(entrada.id) {
+                Some(corpo) => (200, corpo.to_string()),
+                None => (
+                    404,
+                    "{\"error\":\"item inexistente\",\"detail\":\"Ele já tocou, foi cancelado \
+                     ou nunca existiu.\"}"
+                        .to_string(),
+                ),
+            },
+            Err(err) => (400, format!("{{\"error\":\"json invalido: {err}\"}}")),
+        },
+
+        ("POST", "/narrate/skip") => {
+            if narracao.pular() {
+                (200, "{\"ok\":true}".to_string())
+            } else {
+                (404, "{\"error\":\"nada tocando\"}".to_string())
+            }
         }
 
         ("GET", "/progress") => {
@@ -417,6 +554,30 @@ fn responder(codigo: u16, corpo: &str, origem: Option<&str>) -> String {
     )
 }
 
+/// O IPv4 do Tailscale desta máquina, ou `None`.
+///
+/// Usado para o segundo listener da ponte: o loopback não alcança WSL em
+/// modo NAT nem as máquinas do homelab, e o IP da tailnet alcança os dois —
+/// o próprio Tailscale cifra o que passa por ele.
+pub fn tailscale_ipv4() -> Option<std::net::IpAddr> {
+    for programa in ["tailscale", r"C:\Program Files\Tailscale\tailscale.exe"] {
+        let Ok(saida) = std::process::Command::new(programa).args(["ip", "-4"]).output() else {
+            continue;
+        };
+        if !saida.status.success() {
+            continue;
+        }
+        for linha in String::from_utf8_lossy(&saida.stdout).lines() {
+            if let Ok(ip) = linha.trim().parse::<std::net::IpAddr>() {
+                if ip.is_ipv4() {
+                    return Some(ip);
+                }
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -425,30 +586,25 @@ mod tests {
     fn pagina_web_nunca_passa() {
         // O que a regra existe para barrar: qualquer página aberta alcança
         // 127.0.0.1, e o CORS bloqueia a resposta, não o efeito.
-        for metodo in ["GET", "POST"] {
-            assert!(!origem_permitida(metodo, Some("https://exemplo.com")));
-            assert!(!origem_permitida(metodo, Some("http://127.0.0.1:8765")));
+        for origem in ["https://exemplo.com", "http://127.0.0.1:8765"] {
+            assert!(!origem_permitida(Some(origem)));
         }
     }
 
     #[test]
-    fn extensao_passa_em_qualquer_metodo() {
-        for metodo in ["GET", "POST"] {
-            assert!(origem_permitida(metodo, Some("chrome-extension://abcdefghijklmnop")));
-        }
+    fn extensao_passa() {
+        assert!(origem_permitida(Some("chrome-extension://abcdefghijklmnop")));
     }
 
     /// O Chrome não anexa `Origin` num GET simples vindo de uma página de
-    /// extensão, e era assim que o "salvar e testar" das opções levava 403 —
-    /// o primeiro contato de quem acabou de instalar.
-    ///
-    /// Aceitar isso é seguro porque uma página web **não consegue** fazer um
-    /// POST sem `Origin`: o navegador o anexa sempre que o método não é
-    /// GET/HEAD. O que muda estado continua exigindo a origem da extensão.
+    /// extensão, e o mod do Claude Code não anexa em pedido nenhum — ele não
+    /// é navegador. Aceitar o cabeçalho ausente é seguro porque uma página
+    /// web **não consegue** fazer um POST sem `Origin`: o navegador o anexa
+    /// sempre que o método não é GET/HEAD. Quem barra o programa local é o
+    /// token, uma checagem adiante.
     #[test]
-    fn sem_origem_le_mas_nao_muda_nada() {
-        assert!(origem_permitida("GET", None));
-        assert!(!origem_permitida("POST", None));
+    fn sem_origem_passa_e_o_token_decide() {
+        assert!(origem_permitida(None));
     }
 
     #[test]

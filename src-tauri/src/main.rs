@@ -9,6 +9,7 @@ mod commands;
 mod config;
 mod dictation;
 mod mic_id;
+mod narration;
 mod paste;
 mod presence;
 mod reading;
@@ -38,6 +39,8 @@ pub struct AppState {
     sounds: Arc<SoundBank>,
     /// Onde a leitura está agora, para a extensão de navegador acompanhar.
     bridge: Arc<bridge::BridgeState>,
+    /// A fila de narração de agentes de CLI, e o que acorda o trabalhador.
+    narration: Arc<narration::Narration>,
     /// O que aconteceu ao registrar os atalhos, para o painel poder contar.
     shortcut_report: Mutex<tray::ShortcutReport>,
 }
@@ -1070,6 +1073,245 @@ impl bridge::Acoes for AcoesDaPonte {
         state.reader.stop(&self.app);
         state.bridge.clear();
     }
+
+    fn pausar(&self) {
+        self.app.state::<AppState>().reader.pause(&self.app);
+    }
+
+    fn retomar(&self) {
+        self.app.state::<AppState>().reader.resume(&self.app);
+    }
+}
+
+/// A ponte fala com a fila de narração por aqui.
+///
+/// Sem traço próprio, este módulo puxaria o app inteiro — e o teste da ponte,
+/// que só precisa conferir o que foi pedido, teria que subir um `AppHandle`.
+struct AcoesNarracaoDaPonte {
+    app: AppHandle,
+}
+
+impl bridge::AcoesNarracao for AcoesNarracaoDaPonte {
+    fn narrar(
+        &self,
+        pedido: bridge::PedidoNarracao,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<serde_json::Value, bridge::NarrarErro>> + Send>>
+    {
+        let app = self.app.clone();
+        Box::pin(async move {
+            let (limite, auto_speak, ligado) = {
+                let state = app.state::<AppState>();
+                let settings = state.settings.lock();
+                (
+                    settings.narration_queue_limit,
+                    settings.narration_auto_speak,
+                    settings.narration_enabled && settings.service_enabled,
+                )
+            };
+            if !ligado {
+                return Err(bridge::NarrarErro::Desligado);
+            }
+
+            // O modo do pedido vence; sem modo, vale o padrão do painel. É o
+            // contrato que deixa o mod e o painel controlarem a mesma coisa
+            // sem brigarem: o pedido carrega a escolha de quem chamou.
+            let modo = narration::Modo::do_nome(pedido.mode.as_deref()).unwrap_or(if auto_speak {
+                narration::Modo::Falar
+            } else {
+                narration::Modo::Segurar
+            });
+
+            let origem = pedido.source.unwrap_or_else(|| "agente".into());
+            let state = app.state::<AppState>();
+            let (id, posicao) = state
+                .narration
+                .enqueue(pedido.text, origem, modo, limite)
+                .map_err(|_| bridge::NarrarErro::FilaCheia)?;
+            tracing::info!(id, posicao, modo = modo.nome(), "narração enfileirada");
+            Ok(serde_json::json!({
+                "ok": true,
+                "id": id,
+                "position": posicao,
+                "mode": modo.nome(),
+            }))
+        })
+    }
+
+    fn fila(&self) -> serde_json::Value {
+        let state = self.app.state::<AppState>();
+        let habilitada = state.settings.lock().narration_enabled;
+        let corrente = state.narration.corrente().map(|item| item_json(&item));
+        let pendentes: Vec<serde_json::Value> = state
+            .narration
+            .pendentes()
+            .iter()
+            .map(item_json)
+            .collect();
+        serde_json::json!({
+            "enabled": habilitada,
+            "service_enabled": state.settings.lock().service_enabled,
+            "reading_state": format!("{:?}", state.reader.state()),
+            "current": corrente,
+            "items": pendentes,
+        })
+    }
+
+    fn tocar(&self, id: u64) -> Option<serde_json::Value> {
+        let state = self.app.state::<AppState>();
+        match state.narration.request_play(id) {
+            Ok(narration::Jogada::Tocando) => {
+                Some(serde_json::json!({"ok": true, "action": "playing"}))
+            }
+            Ok(narration::Jogada::Promovido) => {
+                Some(serde_json::json!({"ok": true, "action": "promoted"}))
+            }
+            Ok(narration::Jogada::JaTocando) => {
+                Some(serde_json::json!({"ok": true, "action": "already"}))
+            }
+            Err(_) => None,
+        }
+    }
+
+    fn cancelar(&self, id: u64) -> Option<serde_json::Value> {
+        let state = self.app.state::<AppState>();
+        match state.narration.cancel(id) {
+            narration::Cancelamento::Removido => {
+                Some(serde_json::json!({"ok": true, "was_current": false}))
+            }
+            narration::Cancelamento::Corrente => {
+                // A fila tirou o item; parar a fala é a parte da ponte.
+                state.reader.stop(&self.app);
+                state.bridge.clear();
+                Some(serde_json::json!({"ok": true, "was_current": true}))
+            }
+            narration::Cancelamento::Inexistente => None,
+        }
+    }
+
+    fn pular(&self) -> bool {
+        let state = self.app.state::<AppState>();
+        let tinha = state.narration.skip();
+        if tinha {
+            state.reader.stop(&self.app);
+            state.bridge.clear();
+        }
+        tinha
+    }
+}
+
+fn item_json(item: &narration::Item) -> serde_json::Value {
+    serde_json::json!({
+        "id": item.id,
+        "source": item.origem,
+        "mode": item.modo.nome(),
+        "state": item.estado,
+        "preview": item.previa(),
+    })
+}
+
+/// O trabalhador da fila de narração: um item por vez, do começo ao fim.
+///
+/// Dorme quando a fila está vazia e acorda com o `Notify` da própria fila.
+/// Cada item: adapta o texto (preset `narracao` da speech-api), espera o play
+/// quando o modo é segurar, fala pelo player da leitura, e só então libera o
+/// topo para o próximo.
+async fn rodar_narracao(app: AppHandle) {
+    loop {
+        let item = app.state::<AppState>().narration.begin_next();
+        let Some(item) = item else {
+            app.state::<AppState>().narration.wait().await;
+            continue;
+        };
+
+        // A adaptação custa uma chamada de modelo, e é por isso que acontece
+        // aqui e não no enqueue: cancelar um item que nunca chegou ao topo
+        // não deve ter pago por ela.
+        let fala = {
+            let state = app.state::<AppState>();
+            let modelo = state
+                .settings
+                .lock()
+                .narration_model
+                .clone()
+                .filter(|valor| !valor.trim().is_empty());
+            match state
+                .api
+                .rewrite_text(&item.original, "narracao", 2, modelo.as_deref())
+                .await
+            {
+                Ok(resultado) if resultado.rewritten.applied => resultado.text,
+                Ok(_) => {
+                    tracing::info!("adaptação não aplicou; narrando o texto original");
+                    item.original.clone()
+                }
+                Err(err) => {
+                    tracing::warn!(?err, "adaptação falhou; narrando o texto original");
+                    item.original.clone()
+                }
+            }
+        };
+
+        if fala.trim().is_empty() {
+            tracing::info!(id = item.id, "nada para narrar");
+            app.state::<AppState>().narration.finish(item.id);
+            continue;
+        }
+
+        // Modo segurar: fica pronto e espera o comando de tocar — ou um
+        // cancelamento, que tira o item do corrente e libera o topo.
+        if item.modo == narration::Modo::Segurar {
+            app.state::<AppState>().narration.mark(item.id, narration::Estado::Pronto);
+            loop {
+                if app.state::<AppState>().narration.take_play_request(item.id) {
+                    break;
+                }
+                if !app.state::<AppState>().narration.is_corrente(item.id) {
+                    break;
+                }
+                app.state::<AppState>().narration.wait().await;
+            }
+            if !app.state::<AppState>().narration.is_corrente(item.id) {
+                continue;
+            }
+        }
+
+        app.state::<AppState>().narration.mark(item.id, narration::Estado::Tocando);
+        let (voz, velocidade, prebuffer) = {
+            let state = app.state::<AppState>();
+            let settings = state.settings.lock();
+            (settings.voice.clone(), settings.speed, settings.prebuffer_ratio)
+        };
+        {
+            let state = app.state::<AppState>();
+            if let Err(err) = state
+                .reader
+                .speak(app.clone(), fala, voz, velocidade, prebuffer)
+                .await
+            {
+                tracing::error!(?err, id = item.id, "narração falhou na síntese");
+            }
+        }
+
+        // `speak` devolve quando o último trecho foi sintetizado, não quando
+        // ele parou de tocar: quem toca é a janela de leitura. O topo só se
+        // libera quando a fala de fato termina — completa, foi parada, ou
+        // falhou — para que o item seguinte não comece por cima desta.
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            let state = app.state::<AppState>();
+            if !state.narration.is_corrente(item.id) {
+                // Cancelado ou pulado por fora; quem parou a fala foi o pedido.
+                break;
+            }
+            match state.reader.state() {
+                reading::ReadingState::Complete
+                | reading::ReadingState::Failed
+                | reading::ReadingState::Idle => break,
+                _ => {}
+            }
+        }
+        app.state::<AppState>().narration.finish(item.id);
+    }
 }
 
 // ---------------------------------------------------------------- partida
@@ -1150,6 +1392,7 @@ fn main() {
         settings: Mutex::new(settings),
         sounds: sound_bank,
         bridge: Arc::new(bridge::BridgeState::default()),
+        narration: Arc::new(narration::Narration::new()),
         shortcut_report: Mutex::new(tray::ShortcutReport::default()),
         api,
     };
@@ -1204,26 +1447,77 @@ fn main() {
             // Criar uma webview custa 100–200 ms; fazer isso no momento do atalho
             // apareceria como atraso justamente onde a resposta precisa ser
             // instantânea. Criada na partida, mostrar depois custa ~1 frame.
-            // Ponte da extensão de navegador. Falhar aqui não impede o app:
-            // atalho e bandeja continuam funcionando, e a porta ocupada por
-            // outro programa é o caso comum de erro.
+            // Ponte da extensão de navegador — e, pelo mesmo endereço de porta,
+            // do mod do Claude Code. Falhar aqui não impede o app: atalho e
+            // bandeja continuam funcionando, e a porta ocupada por outro
+            // programa é o caso comum de erro.
             {
                 let estado_do_app = app.state::<AppState>();
-                let (ligada, porta, token) = {
+                let (ligada, porta, token, tailscale) = {
                     let settings = estado_do_app.settings.lock();
-                    (settings.bridge_enabled, settings.bridge_port, settings.bridge_token.clone())
+                    (
+                        settings.bridge_enabled,
+                        settings.bridge_port,
+                        settings.bridge_token.clone(),
+                        settings.bridge_tailscale,
+                    )
                 };
                 if ligada {
                     let estado = estado_do_app.bridge.clone();
                     let acoes = std::sync::Arc::new(AcoesDaPonte { app: handle.clone() });
-                    tauri::async_runtime::spawn(async move {
-                        let config = bridge::Config { porta, token };
-                        if let Err(err) = bridge::servir(config, estado, acoes).await {
-                            tracing::error!(?err, porta, "a ponte da extensão não subiu");
+                    let acoes_narracao = std::sync::Arc::new(AcoesNarracaoDaPonte {
+                        app: handle.clone(),
+                    });
+                    let token_loopback = token.clone();
+                    tauri::async_runtime::spawn({
+                        let acoes = acoes.clone();
+                        let acoes_narracao = acoes_narracao.clone();
+                        let estado_loopback = estado.clone();
+                        async move {
+                            let config = bridge::Config {
+                                endereco: "127.0.0.1".into(),
+                                porta,
+                                token: token_loopback,
+                            };
+                            if let Err(err) =
+                                bridge::servir(config, estado_loopback, acoes, acoes_narracao).await
+                            {
+                                tracing::error!(?err, porta, "a ponte da extensão não subiu");
+                            }
                         }
                     });
+
+                    // O segundo listener alcança os agentes que não estão
+                    // nesta máquina — WSL em modo NAT e o homelab — pela
+                    // tailnet, que já cifra o que passa por ela.
+                    if tailscale {
+                        if let Some(ip) = bridge::tailscale_ipv4() {
+                            tracing::info!(%ip, "ponte da extensão também na tailnet");
+                            tauri::async_runtime::spawn(async move {
+                                let config = bridge::Config {
+                                    endereco: ip.to_string(),
+                                    porta,
+                                    token,
+                                };
+                                if let Err(err) =
+                                    bridge::servir(config, estado, acoes, acoes_narracao).await
+                                {
+                                    tracing::warn!(?err, porta, "a ponte da tailnet não subiu");
+                                }
+                            });
+                        } else {
+                            tracing::warn!(
+                                "bridge_tailscale ligado e nenhum IP do Tailscale foi \
+                                 encontrado; a ponte segue só no loopback"
+                            );
+                        }
+                    }
                 }
             }
+
+            // O trabalhador da fila de narração: vive a vida inteira do app,
+            // dormindo quando não há nada para narrar.
+            tauri::async_runtime::spawn(rodar_narracao(handle.clone()));
 
             if let Some(hud) = app.get_webview_window("hud") {
                 // Nasce escondido: o HUD so aparece quando ha o que mostrar.

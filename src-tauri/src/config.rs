@@ -145,6 +145,43 @@ pub struct Settings {
     pub vocabulary: Vec<String>,
     pub custom_instructions: String,
 
+    /// Escuta a ponte também no IP do Tailscale.
+    ///
+    /// O loopback não alcança o WSL em modo NAT nem as máquinas remotas; o IP
+    /// da tailnet alcança os dois, cifrado pelo próprio Tailscale. Desligado
+    /// por padrão: abrir a porta para a tailnet é uma decisão, não um
+    /// efeito colateral de atualizar o Vox.
+    pub bridge_tailscale: bool,
+
+    // --- narração de agentes de CLI ---
+    /// Aceita pedidos de narração pela ponte (rota `/narrate`).
+    ///
+    /// Um mod do agente manda a resposta final do turno; o Vox adapta o texto
+    /// para fala e usa o mesmo player da leitura. Desligado, a rota recusa e
+    /// o resto do app segue idêntico.
+    pub narration_enabled: bool,
+
+    /// Fala sozinho quando o item chega ao topo da fila.
+    ///
+    /// Desligado, o item é adaptado e fica pronto, esperando o comando de
+    /// tocar — quem quer ouvir no próprio ritmo, e não no ritmo do agente.
+    /// Um pedido pode vir com modo próprio (`speak`/`hold`) e sobrescrever
+    /// isto por item.
+    pub narration_auto_speak: bool,
+
+    /// Modelo da adaptação de narração (preset `narracao` da speech-api).
+    ///
+    /// Vazio usa o padrão do servidor, que já é o rápido; preencher é para
+    /// trocar por um mais caprichado sem depender de deploy do servidor.
+    pub narration_model: Option<String>,
+
+    /// Teto de itens esperando na fila de narração.
+    ///
+    /// Um agente em loop pode terminar turno a cada minuto; sem teto, uma
+    /// noite deixaria centenas de respostas velhas na fila, e a primeira
+    /// coisa ouvida de manhã seria a mais antiga delas.
+    pub narration_queue_limit: usize,
+
     // --- reescrita do que foi ditado ---
     /// Passa a transcrição por um modelo antes de entregar.
     ///
@@ -277,6 +314,12 @@ impl Default for Settings {
             bridge_token: gerar_token(),
             vocabulary: Vec::new(),
             custom_instructions: String::new(),
+            bridge_tailscale: false,
+
+            narration_enabled: true,
+            narration_auto_speak: true,
+            narration_model: None,
+            narration_queue_limit: 10,
 
             stt_rewrite_enabled: false,
             stt_rewrite_preset: "fala-limpa".into(),
@@ -354,6 +397,9 @@ impl Settings {
         if self.stt_rewrite_preset.trim().is_empty() {
             self.stt_rewrite_preset = "fala-limpa".into();
         }
+        // Teto de fila: zero travaria a narração com a aparência de ligada, e
+        // um número gigante seria o mesmo que não ter teto.
+        self.narration_queue_limit = self.narration_queue_limit.clamp(1, 50);
 
         // Cada comando precisa de uma combinação, e a do arquivo tem prioridade
         // sobre a padrão. O campo antigo entra aqui uma única vez: depois disto
@@ -614,6 +660,20 @@ mod tests {
         };
         settings.sanitize();
         assert_eq!(settings.vocabulary.len(), MAX_VOCABULARY_ITEMS);
+    }
+
+    #[test]
+    fn sanitize_limita_a_fila_de_narracao() {
+        // Zero travaria a narração com a aparência de ligada; gigante é o
+        // mesmo que não ter teto.
+        for (entrada, esperado) in [(0usize, 1usize), (999, 50)] {
+            let mut settings = Settings {
+                narration_queue_limit: entrada,
+                ..Default::default()
+            };
+            settings.sanitize();
+            assert_eq!(settings.narration_queue_limit, esperado);
+        }
     }
 
     #[test]

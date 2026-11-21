@@ -73,6 +73,10 @@
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5h4v2.2a1.8 1.8 0 1 0 3.6 0V8h1.9v4h-2.2a1.8 1.8 0 1 0 0 3.6H13v1.9H7v-2.2a1.8 1.8 0 1 0-3.6 0H3v-4h2.2a1.8 1.8 0 1 0 0-3.6H3V4h5z"/></svg>
       Extensão
     </button>
+    <button class="nav-item" type="button" data-secao="narracao">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="15" height="12" rx="2"/><path d="M7 12.5v-5l3 3.5 3-3.5v5"/></svg>
+      Narração
+    </button>
 
     <div class="nav-espaco"></div>
 
@@ -562,6 +566,54 @@
               <input type="text" id="bridgeToken" readonly spellcheck="false">
               <button type="button" class="botao" id="copiarToken">Copiar</button>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------------- sobre -->
+      <section class="secao" data-secao="narracao">
+        <div class="grupo">
+          <h2>Agentes de CLI</h2>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Narrar respostas de agentes</span>
+              <small>Um mod do Claude Code manda a resposta final do turno pela ponte;
+                     o Vox adapta o texto para fala e usa o mesmo player da leitura.</small>
+            </span>
+            <div class="controle"><input type="checkbox" id="narrationEnabled"></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Falar sozinho ao chegar ao topo</span>
+              <small>Desligado, cada resposta é adaptada e fica pronta, esperando o
+                     play pelo painel do mod — ouvir no seu ritmo, não no do agente.</small>
+            </span>
+            <div class="controle"><input type="checkbox" id="narrationAutoSpeak"></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Modelo da adaptação</span>
+              <small>Reescreve markdown, tabelas e código em fala natural. Vazio usa o
+                     padrão rápido do servidor.</small>
+            </span>
+            <div class="controle"><input type="text" id="narrationModel" placeholder="padrão do servidor" spellcheck="false"></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Fila máxima</span>
+              <small>Respostas esperando a vez. Acima disso o pedido volta recusado e o
+                     painel do mod avisa.</small>
+            </span>
+            <div class="controle"><input type="number" id="narrationQueueLimit" min="1" max="50"></div>
+          </div>
+          <div class="linha">
+            <span class="rotulo">
+              <span>Ponte no IP do Tailscale</span>
+              <small>Deixa agentes de fora alcançarem o Vox: WSL em modo NAT e as
+                     máquinas do homelab, cifrado pela própria tailnet. Vale depois de
+                     reiniciar.</small>
+            </span>
+            <div class="controle"><input type="checkbox" id="bridgeTailscale"></div>
           </div>
         </div>
       </section>

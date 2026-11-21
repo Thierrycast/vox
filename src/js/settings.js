@@ -86,6 +86,10 @@ const campos = {
   customInstructions: "custom_instructions",
   bridgeEnabled: "bridge_enabled",
   bridgePort: "bridge_port",
+  bridgeTailscale: "bridge_tailscale",
+  narrationEnabled: "narration_enabled",
+  narrationAutoSpeak: "narration_auto_speak",
+  narrationQueueLimit: "narration_queue_limit",
 };
 
 /* Cores de destaque. Poucas e escolhidas: um seletor de cor livre deixa a
@@ -110,6 +114,7 @@ const SECOES = {
   atalhos: ["Atalhos", "As combinações globais, e o que fazer quando outro app toma uma."],
   widget: ["Widget", "A pílula flutuante: onde ela aparece e como ela se comporta."],
   extensao: ["Extensão", "A ponte local que a extensão de navegador usa."],
+  narracao: ["Narração", "Respostas de agentes de CLI viram fala, na ordem em que chegaram."],
   sobre: ["Sobre", "Para onde o áudio vai, e o que está rodando do outro lado."],
 };
 
@@ -244,6 +249,7 @@ function desenhar(settings) {
 
   elemento("externalSounds").value = settings.external_sounds_directory ?? "";
   elemento("bridgeToken").value = settings.bridge_token ?? "";
+  elemento("narrationModel").value = settings.narration_model ?? "";
 
   elemento("soundsVolumeValor").textContent = porcentagem(settings.sounds_volume ?? 1);
   elemento("speedValor").textContent = `${(settings.speed ?? 1).toFixed(2).replace(".", ",")}×`;
@@ -578,6 +584,10 @@ function coletar() {
 
   const modelo = elemento("sttRewriteModel").value.trim();
   settings.stt_rewrite_model = modelo === "" ? null : modelo;
+
+  // Mesma regra do modelo do ajuste: vazio deixa o servidor decidir.
+  const modeloNarracao = elemento("narrationModel").value.trim();
+  settings.narration_model = modeloNarracao === "" ? null : modeloNarracao;
 
   settings.vocabulary = [...vocabulario];
   settings.shortcuts = { ...settings.shortcuts, ...atalhos };
