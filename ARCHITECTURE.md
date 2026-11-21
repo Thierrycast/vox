@@ -414,6 +414,38 @@ monitor trocado de porta — cair para o monitor principal, e depois para o
 primeiro disponível, evita o mesmo defeito por outro caminho: o widget preso nas
 coordenadas de uma tela que não existe mais.
 
+### Livre ou ancorado, por papel
+
+Cada papel tem, além da posição lembrada, uma **âncora** nas preferências:
+`livre` (o comportamento de sempre) ou um ponto fixo — canto ou centro de
+borda. Ancorado, `shape_hud` recalcula as coordenadas do monitor **a cada uso**:
+a âncora sobrevive à troca de monitor, o `Moved` que chegar não vira
+preferência (o ponto fixo manda) e o arraste é desligado na própria página
+(`-webkit-app-region: no-drag`), porque prometer um movimento que o backend
+desfaz na forma seguinte seria pior do que não prometer. A posição arrastada
+continua guardada: voltar a `livre` devolve o lugar de antes, em vez de apagar
+a lembrança de quem só ancorou por um tempo.
+
+O atalho de mostrar/esconder o widget, com um ditado ou uma leitura em curso,
+não faz nada. O caminho antigo chamava o repouso da barra — e trocava a pílula
+da leitura por uma onda parada, com a voz ainda falando e o transporte sumido
+do meio da frase.
+
+### Abrir sem piscar
+
+Mostrar a janela antes de a página trocar o conteúdo entregava o **último
+quadro do uso anterior** — o "Copiado" de um ditado que já acabou, a pílula de
+uma leitura que já parou — por um ou dois quadros, até o evento chegar e o
+JavaScript redesenhar. A ordem correta agora é: posicionar e redimensionar
+escondido, emitir o estado com um número de pedido, esperar a página responder
+que desenhou, e só então `show`. A resposta sai do próprio manipulador do
+evento — o DOM já foi trocado quando ela parte — então o primeiro quadro
+visível já é o conteúdo novo. Sem resposta a tempo (página presa), mostra assim
+mesmo: o teto é de 150 ms, e a maquinaria de confirmação de pintura (`presence`)
+é quem descobre depois se faltou quadro. Esconder conta como pedido: um
+"mostrar" que ainda esperava a página desiste, e o widget não volta sozinho
+depois de a pessoa ter mandado ele sair.
+
 ### O widget que parava de aparecer
 
 Duas causas diferentes produziam o mesmo sintoma — o ditado colava, a leitura

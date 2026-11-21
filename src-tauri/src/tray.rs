@@ -98,9 +98,9 @@ pub fn build(app: &AppHandle, report: &ShortcutReport) -> tauri::Result<()> {
         })?)
         .tooltip(dica)
         .menu(&menu)
-        // O menu não abre no clique esquerdo: esse gesto abre o leitor, que é o
-        // que se quer 90% das vezes. O menu fica no botão direito, como manda o
-        // costume do Windows.
+        // O menu não abre no clique esquerdo: esse gesto abre as preferências
+        // (ver no manipulador abaixo). O menu fica no botão direito, como manda
+        // o costume do Windows.
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| responder_menu(app, event.id().as_ref()))
         .on_tray_icon_event(|tray, event| {

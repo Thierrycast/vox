@@ -311,17 +311,21 @@ impl Reader {
             )
         };
 
-        emit(&app, ReadingState::Generating, None);
         // A forma já nasce certa: abrir estreito e alargar em seguida faria a
         // pílula saltar na tela a cada leitura de quem deixa a legenda ligada.
+        // E a janela só sobe depois de a página confirmar que desenhou o
+        // player — mostrar antes entregava o último quadro do ditado por um
+        // ou dois quadros, até o evento chegar e trocar o conteúdo.
         crate::dictation::shape_hud(&app, if com_legenda {
             crate::dictation::HudShape::ColumnCaptions
         } else {
             crate::dictation::HudShape::Column
         });
-        if let Some(hud) = app.get_webview_window("hud") {
-            let _ = crate::presence::reveal(&hud);
-        }
+        crate::dictation::revelar_quando_pronto(
+            &app,
+            "vox://reading",
+            serde_json::json!({ "state": ReadingState::Generating }),
+        );
 
         // A janela já existe escondida desde a partida; mostrar custa um quadro.
         // Ela sobe antes do primeiro áudio para o texto aparecer imediatamente,

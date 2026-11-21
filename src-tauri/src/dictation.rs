@@ -586,13 +586,16 @@ impl HudShape {
 /// O papel que a janela está exercendo agora. Zero é nenhum ainda.
 static PAPEL_ATUAL: AtomicU8 = AtomicU8::new(0);
 
-/// Conta cada vez que o widget recebe uma forma — ou seja, cada vez que alguém o
-/// pediu para alguma coisa.
+/// Conta cada vez que o widget é pedido — para receber uma forma **ou** para
+/// sair da tela.
 ///
 /// Serve a quem agenda esconder o widget para depois. O ditado mostra o
 /// "Copiado" e esconde dois segundos mais tarde; se nesse intervalo começou uma
 /// leitura ou outro ditado, esconder derrubaria o widget de quem acabou de
-/// chegar, e o Vox seguiria trabalhando sem nada na tela.
+/// chegar, e o Vox seguiria trabalhando sem nada na tela. E serve a quem
+/// agenda o contrário: mostrar a janela só depois de a página desenhar (ver
+/// `revelar_quando_pronto`) desiste se o número andar — alguém pediu o widget
+/// de novo, ou mandou escondê-lo, no meio do caminho.
 static HUD_EPOCH: AtomicU64 = AtomicU64::new(0);
 
 pub fn hud_epoch() -> u64 {
@@ -670,12 +673,48 @@ fn ponto_visivel(window: &tauri::WebviewWindow, x: f64, y: f64) -> bool {
     })
 }
 
+/// Folga entre o widget ancorado e a borda lateral ou superior do monitor,
+/// em pixels lógicos.
+const MARGEM_DE_BORDA: f64 = 24.0;
+/// Folga extra na borda de baixo, para não encostar na barra de tarefas — o
+/// mesmo espaço que a posição padrão do ditado já respeita.
+const MARGEM_DA_BASE: f64 = 96.0;
+
+/// Coordenadas da âncora dentro do monitor, em pixels lógicos.
+///
+/// `None` quando o papel está livre: aí manda a posição lembrada (ou o
+/// padrão). Ancorada, a janela é recalculada do monitor a cada vez — mudar de
+/// forma mantém a âncora no lugar, o monitor que sumiu não leva a âncora junto,
+/// e o arraste não tem efeito porque `shape_hud` sempre devolve o widget para
+/// cá.
+fn posicao_ancorada(
+    ancora: crate::config::HudPlacement,
+    tela_largura: f64,
+    tela_altura: f64,
+    largura: f64,
+    altura: f64,
+) -> Option<(f64, f64)> {
+    use crate::config::HudPlacement;
+    Some(match ancora {
+        HudPlacement::Livre => return None,
+        HudPlacement::TopoEsquerda => (MARGEM_DE_BORDA, MARGEM_DE_BORDA),
+        HudPlacement::TopoCentro => ((tela_largura - largura) / 2.0, MARGEM_DE_BORDA),
+        HudPlacement::TopoDireita => (tela_largura - largura - MARGEM_DE_BORDA, MARGEM_DE_BORDA),
+        HudPlacement::MeioEsquerda => (MARGEM_DE_BORDA, (tela_altura - altura) / 2.0),
+        HudPlacement::MeioDireita => (tela_largura - largura - MARGEM_DE_BORDA, (tela_altura - altura) / 2.0),
+        HudPlacement::BaixoEsquerda => (MARGEM_DE_BORDA, tela_altura - altura - MARGEM_DA_BASE),
+        HudPlacement::BaixoCentro => ((tela_largura - largura) / 2.0, tela_altura - altura - MARGEM_DA_BASE),
+        HudPlacement::BaixoDireita => (tela_largura - largura - MARGEM_DE_BORDA, tela_altura - altura - MARGEM_DA_BASE),
+    })
+}
+
 /// Redimensiona e reposiciona a janela flutuante.
 ///
 /// A barra do ditado fica no centro inferior, com folga para não encostar na
 /// barra de tarefas: durante o ditado o olho não está no texto, e o centro é
 /// onde ele acha o indicador sem procurar. A coluna da leitura encosta na borda
-/// direita, centralizada na vertical — é onde ela cobre menos texto.
+/// direita, centralizada na vertical — é onde ela cobre menos texto. Papel com
+/// âncora nas preferências ignora tudo isso e fica no ponto escolhido.
 pub fn shape_hud(app: &AppHandle, shape: HudShape) {
     let Some(window) = app.get_webview_window("hud") else { return };
 
@@ -734,16 +773,20 @@ pub fn shape_hud(app: &AppHandle, shape: HudShape) {
     let mesmo_papel = current_role() == Some(papel);
     let visivel = window.is_visible().unwrap_or(false);
 
-    let guardada = {
+    let (guardada, ancora) = {
         let state = app.state::<crate::AppState>();
         let settings = state.settings.lock();
         match papel {
-            HudRole::Dictation => settings.hud_position_dictation,
-            HudRole::Reading => settings.hud_position_reading,
+            HudRole::Dictation => (settings.hud_position_dictation, settings.hud_placement_dictation),
+            HudRole::Reading => (settings.hud_position_reading, settings.hud_placement_reading),
         }
     };
 
     /* De onde vem a posição, em ordem.
+     *
+     * 0. **O papel tem âncora nas preferências** — o ponto fixo manda, sempre
+     *    recalculado do monitor que está ligado agora. A posição lembrada fica
+     *    guardada para o dia em que a âncora voltar a ser "livre".
      *
      * 1. **A janela já está na tela, no mesmo papel** — a posição atual manda.
      *    É o caso de abrir e fechar a legenda: a pílula não pode voltar ao lugar
@@ -755,29 +798,32 @@ pub fn shape_hud(app: &AppHandle, shape: HudShape) {
      *    tela passava a posição dela para o ditado que começasse em seguida.
      *
      * 3. **Nunca foi arrastado para lá**, ou o monitor sumiu — o padrão do papel. */
-    let (x, y) = match (visivel && mesmo_papel, current_size, current_position) {
-        (true, Some(size), Some(position)) if (width - size.width).abs() > f64::EPSILON => {
-            (position.x + size.width - width, position.y)
-        }
-        (true, _, Some(position)) => (position.x, position.y),
-        _ => {
-            let lembrada = guardada.and_then(|posicao| {
-                let (x, y) = match papel {
-                    HudRole::Dictation => (posicao.x, posicao.y),
-                    // Guardada pela borda direita: vale para a pílula estreita e
-                    // para a aberta.
-                    HudRole::Reading => (posicao.x - width, posicao.y),
-                };
-                // Confere o meio da janela, e não o canto: um canto um pixel fora
-                // da tela ainda deixa o widget inteiro à vista.
-                ponto_visivel(&window, x + width / 2.0, y + height / 2.0).then_some((x, y))
-            });
+    let (x, y) = match posicao_ancorada(ancora, screen.width, screen.height, width, height) {
+        Some(ponto) => ponto,
+        None => match (visivel && mesmo_papel, current_size, current_position) {
+            (true, Some(size), Some(position)) if (width - size.width).abs() > f64::EPSILON => {
+                (position.x + size.width - width, position.y)
+            }
+            (true, _, Some(position)) => (position.x, position.y),
+            _ => {
+                let lembrada = guardada.and_then(|posicao| {
+                    let (x, y) = match papel {
+                        HudRole::Dictation => (posicao.x, posicao.y),
+                        // Guardada pela borda direita: vale para a pílula estreita e
+                        // para a aberta.
+                        HudRole::Reading => (posicao.x - width, posicao.y),
+                    };
+                    // Confere o meio da janela, e não o canto: um canto um pixel fora
+                    // da tela ainda deixa o widget inteiro à vista.
+                    ponto_visivel(&window, x + width / 2.0, y + height / 2.0).then_some((x, y))
+                });
 
-            lembrada.unwrap_or_else(|| match papel {
-                HudRole::Dictation => ((screen.width - width) / 2.0, screen.height - height - 96.0),
-                HudRole::Reading => (screen.width - width - 12.0, (screen.height - height) / 2.0),
-            })
-        }
+                lembrada.unwrap_or_else(|| match papel {
+                    HudRole::Dictation => ((screen.width - width) / 2.0, screen.height - height - MARGEM_DA_BASE),
+                    HudRole::Reading => (screen.width - width - 12.0, (screen.height - height) / 2.0),
+                })
+            }
+        },
     };
 
     set_current_role(papel);
@@ -814,26 +860,86 @@ pub fn shape_hud(app: &AppHandle, shape: HudShape) {
     }
 }
 
-pub fn show_hud(app: &AppHandle, push_to_talk: bool) {
+/// Número do último pedido de desenho confirmado pela página do HUD.
+static HUD_PRONTO: AtomicU64 = AtomicU64::new(0);
+/// Contador dos pedidos de desenho emitidos.
+static HUD_PRONTO_PEDIDO: AtomicU64 = AtomicU64::new(0);
+
+/// Quanto esperar a página trocar o conteúdo antes de mostrar assim mesmo.
+///
+/// A página responde em poucos milissegundos quando está viva; o teto existe
+/// para o dia em que não está — e aí mostrar é o certo, porque a maquinaria de
+/// `presence` é quem descobre depois se ela pintou.
+const HUD_PRONTO_ACEITAVEL: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// A página respondeu que já desenhou o estado pedido.
+///
+/// A resposta sai do próprio manipulador do evento, sem esperar quadro: o DOM
+/// já foi trocado quando ela parte, e o quadro é pintado com o conteúdo novo
+/// assim que a janela aparece.
+pub fn confirmar_hud_pronto(pedido: u64) {
+    HUD_PRONTO.fetch_max(pedido, Ordering::Relaxed);
+}
+
+/// Emite o estado do widget e mostra a janela só depois de a página desenhar.
+///
+/// Mostrar primeiro entregava o último quadro do uso anterior — o "Copiado"
+/// de um ditado que já acabou, a pílula de uma leitura que já parou — por um
+/// ou dois quadros, até o evento chegar e o conteúdo ser trocado. Com a
+/// resposta da página no meio, o primeiro quadro depois de `show` já é o
+/// conteúdo novo: o piscar de abrir não existe.
+///
+/// Janela já visível não espera nada — esconder para mostrar de novo seria o
+/// próprio piscar que este caminho existe para evitar. E um pedido que ficou
+/// velho (alguém mostrou ou escondeu o widget de novo no intervalo) desiste:
+/// quem chegou por último cuida de si.
+pub fn revelar_quando_pronto(app: &AppHandle, evento: &str, mut estado: serde_json::Value) {
     let Some(window) = app.get_webview_window("hud") else {
         tracing::error!("janela do HUD não encontrada");
         return;
     };
+    let pedido = HUD_PRONTO_PEDIDO.fetch_add(1, Ordering::Relaxed) + 1;
+    if let Some(objeto) = estado.as_object_mut() {
+        objeto.insert("pronto".into(), serde_json::json!(pedido));
+    }
+    let _ = app.emit(evento, estado);
+
+    if window.is_visible().unwrap_or(false) {
+        if let Err(err) = crate::presence::reveal(&window) {
+            tracing::error!(?err, "não deu para mostrar o HUD");
+        }
+        return;
+    }
+
+    let epoch = HUD_EPOCH.load(Ordering::Relaxed);
+    tauri::async_runtime::spawn(async move {
+        let comecou = std::time::Instant::now();
+        while HUD_PRONTO.load(Ordering::Relaxed) < pedido {
+            if comecou.elapsed() >= HUD_PRONTO_ACEITAVEL {
+                tracing::warn!("a página do HUD não confirmou o desenho a tempo; mostrando assim mesmo");
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(4)).await;
+        }
+        if HUD_EPOCH.load(Ordering::Relaxed) != epoch {
+            return;
+        }
+        if let Err(err) = crate::presence::reveal(&window) {
+            tracing::error!(?err, "não deu para mostrar o HUD");
+        }
+        tracing::debug!(
+            esperou_ms = comecou.elapsed().as_millis(),
+            "HUD mostrado depois de pronto"
+        );
+    });
+}
+
+pub fn show_hud(app: &AppHandle, push_to_talk: bool) {
     shape_hud(app, HudShape::Bar);
-    let _ = app.emit("vox://hud", serde_json::json!({
+    revelar_quando_pronto(app, "vox://hud", serde_json::json!({
         "state": "recording",
         "pushToTalk": push_to_talk,
     }));
-    if let Err(err) = crate::presence::reveal(&window) {
-        tracing::error!(?err, "não deu para mostrar o HUD");
-        return;
-    }
-    tracing::debug!(
-        visivel = ?window.is_visible(),
-        posicao = ?window.outer_position(),
-        tamanho = ?window.outer_size(),
-        "HUD mostrado"
-    );
 }
 
 /// Mostra o widget sem iniciar uma ação de voz.
@@ -841,15 +947,8 @@ pub fn show_hud(app: &AppHandle, push_to_talk: bool) {
 /// É útil para reposicionar o HUD e para confirmar que o Vox está disponível,
 /// sem capturar microfone nem tentar ler a seleção atual.
 pub fn show_idle_hud(app: &AppHandle) {
-    let Some(window) = app.get_webview_window("hud") else {
-        tracing::error!("janela do HUD não encontrada");
-        return;
-    };
     shape_hud(app, HudShape::Bar);
-    let _ = app.emit("vox://hud", serde_json::json!({ "state": "idle" }));
-    if let Err(error) = crate::presence::reveal(&window) {
-        tracing::error!(?error, "não deu para mostrar o HUD em repouso");
-    }
+    revelar_quando_pronto(app, "vox://hud", serde_json::json!({ "state": "idle" }));
 }
 
 /// Esconde o widget se ele ainda estiver no papel de quem pede.
@@ -861,6 +960,10 @@ pub fn hide_hud(app: &AppHandle, role: HudRole) {
         return;
     }
     if let Some(window) = app.get_webview_window("hud") {
+        // Um pedido de mostrar que ainda espera a página desenhar fica velho
+        // aqui: esconde é a última vontade, e revelar depois dela traria de
+        // volta um widget que a pessoa acabou de mandar sair.
+        HUD_EPOCH.fetch_add(1, Ordering::Relaxed);
         crate::presence::conceal(&window);
     }
 }
@@ -917,4 +1020,39 @@ fn emit_state(app: &AppHandle, state: &str, title: Option<&str>, message: Option
         "title": title,
         "message": message,
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::HudPlacement;
+
+    #[test]
+    fn ancora_livre_nao_fixa_ponto_nenhum() {
+        assert!(posicao_ancorada(HudPlacement::Livre, 1920.0, 1080.0, 360.0, 136.0).is_none());
+    }
+
+    #[test]
+    fn ancora_respeita_margens_e_tamanho_da_janela() {
+        let (x, y) = posicao_ancorada(HudPlacement::BaixoDireita, 1920.0, 1080.0, 360.0, 136.0)
+            .expect("âncora fixa tem ponto");
+        assert_eq!(x, 1920.0 - 360.0 - MARGEM_DE_BORDA);
+        assert_eq!(y, 1080.0 - 136.0 - MARGEM_DA_BASE);
+
+        let (x, y) = posicao_ancorada(HudPlacement::TopoEsquerda, 1920.0, 1080.0, 360.0, 136.0)
+            .expect("âncora fixa tem ponto");
+        assert_eq!((x, y), (MARGEM_DE_BORDA, MARGEM_DE_BORDA));
+    }
+
+    #[test]
+    fn ancora_da_leitura_mantem_a_borda_ao_mudar_de_largura() {
+        // A pílula cresce para a esquerda quando a legenda abre: ancorada na
+        // borda direita, o lado que fica parado é o mesmo nas duas larguras.
+        let estreita =
+            posicao_ancorada(HudPlacement::MeioDireita, 1920.0, 1080.0, 136.0, 320.0).unwrap();
+        let aberta =
+            posicao_ancorada(HudPlacement::MeioDireita, 1920.0, 1080.0, 504.0, 320.0).unwrap();
+        assert_eq!(estreita.0 + 136.0, aberta.0 + 504.0);
+        assert_eq!(estreita.1, aberta.1);
+    }
 }

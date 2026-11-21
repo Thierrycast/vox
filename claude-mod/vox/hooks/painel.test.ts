@@ -48,6 +48,8 @@ const PREFERENCIAS = {
   stt_rewrite_model: null,
   vocabulary: ['Tauri', 'Traefik'],
   custom_instructions: '',
+  hud_placement_dictation: 'livre',
+  hud_placement_reading: 'meio-direita',
   shortcuts: { 'read-selection': 'Ctrl+Alt+L' },
   bridge_enabled: true,
   bridge_port: 8765,
@@ -240,6 +242,18 @@ test('opções mantêm o valor atual mesmo fora da lista', () => {
   const velocidade = opcoesNumericas([1, 1.5], 1.3, (n: number) => `${n}x`)
   expect(velocidade.valor).toBe('1.3')
   expect(velocidade.opcoes[0]).toEqual({ value: '1.3', label: '1.3x' })
+})
+
+test('âncora do widget vai como ajuste de um campo só', async ($, on) => {
+  const pedidos: Pedido[] = []
+  vox(on, FILA_VAZIA, pedidos)
+  await abrir($)
+  const ui = await $.ui.mount({ ...PAINEL, surface: 'terminal' })
+  await ui.press({ key: 'aba-widget' })
+  await ui.select({ key: 'ancora-ditado', value: 'baixo-direita' })
+  const ajustes = pedidos.filter((pedido) => new URL(pedido.url).pathname === '/settings' && pedido.corpo)
+  expect(ajustes.map((pedido) => pedido.corpo)).toEqual([{ hud_placement_dictation: 'baixo-direita' }])
+  await ui.unmount()
 })
 
 test('token mascarado e aba padrão conforme a conexão', () => {

@@ -92,6 +92,8 @@ const campos = {
   narrationEnabled: "narration_enabled",
   narrationAutoSpeak: "narration_auto_speak",
   narrationQueueLimit: "narration_queue_limit",
+  hudPlacementDictation: "hud_placement_dictation",
+  hudPlacementReading: "hud_placement_reading",
 };
 
 /* Cores de destaque. Poucas e escolhidas: um seletor de cor livre deixa a
@@ -261,7 +263,7 @@ function desenhar(settings) {
   desenharIntensidade(settings.stt_rewrite_intensity ?? 2);
   desenharPresets(settings.stt_rewrite_preset);
   aplicarCor(settings.theme_accent || CORES[0].id);
-  desenharPosicao(settings.hud_position_dictation, settings.hud_position_reading);
+  desenharPosicao(settings);
 
   atualizarDependencias();
   sincronizarSelects();
@@ -276,8 +278,20 @@ function atualizarDependencias() {
   elemento("linhaTecla").hidden = modo === "disabled";
 }
 
-function desenharPosicao(ditado, leitura) {
+function desenharPosicao(settings) {
   const alvo = elemento("posicaoAtual");
+
+  const ancorado = (settings.hud_placement_dictation ?? "livre") !== "livre"
+    || (settings.hud_placement_reading ?? "livre") !== "livre";
+  if (ancorado) {
+    alvo.textContent =
+      "Com âncora escolhida, o widget fica no ponto fixo da tela e o arraste não move. " +
+      "“Voltar ao padrão” devolve o arraste livre.";
+    return;
+  }
+
+  const ditado = settings.hud_position_dictation;
+  const leitura = settings.hud_position_reading;
   if (!ditado && !leitura) {
     alvo.textContent =
       "Nunca foi arrastado: aparece no centro inferior no ditado e na borda direita na leitura.";
@@ -715,10 +729,10 @@ elemento("reaplicarAtalhos").addEventListener("click", async () => {
 });
 
 elemento("resetarPosicao").addEventListener("click", async () => {
-  // Quem esquece as posições é o backend: o `gravar` do painel não as toca.
+  // Quem esquece as posições e as âncoras é o backend: o `gravar` do painel
+  // não as toca, e o desenho volta do disco para os seletores acompanharem.
   await invoke("reset_hud_position").catch(() => {});
-  atual = { ...atual, hud_position_dictation: null, hud_position_reading: null };
-  desenharPosicao(null, null);
+  desenhar(await invoke("get_settings"));
 });
 
 /* O processo derruba a própria janela ao reiniciar — não há resposta do

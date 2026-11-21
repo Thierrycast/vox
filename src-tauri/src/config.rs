@@ -28,6 +28,27 @@ pub struct WindowPosition {
     pub y: f64,
 }
 
+/// Onde a janela flutuante fica, por papel.
+///
+/// `Livre` é o comportamento de sempre: arrastar move e o lugar fica lembrado.
+/// Cada valor restante ancora a janela num ponto do monitor — para quem quer o
+/// widget sempre no mesmo canto, sem depender de onde ele foi parar da última
+/// vez. Ancorado, o arraste não move.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HudPlacement {
+    #[default]
+    Livre,
+    TopoEsquerda,
+    TopoCentro,
+    TopoDireita,
+    MeioEsquerda,
+    MeioDireita,
+    BaixoEsquerda,
+    BaixoCentro,
+    BaixoDireita,
+}
+
 const ENV_BASE_URL: &str = "VOX_API_URL";
 const ENV_USER: &str = "VOX_API_USER";
 const ENV_PASSWORD: &str = "VOX_API_PASSWORD";
@@ -252,6 +273,16 @@ pub struct Settings {
     /// deixou, com ou sem legenda.
     pub hud_position_reading: Option<WindowPosition>,
 
+    /// Se a barra do ditado é ancorada num ponto da tela ou segue o arraste.
+    ///
+    /// Ancorada, a posição lembrada deixa de valer e o arraste não move a
+    /// janela — é uma escolha de quem quer o widget sempre no mesmo lugar, e
+    /// não de quem o afastou do caminho uma vez.
+    pub hud_placement_dictation: HudPlacement,
+
+    /// O mesmo para a coluna da leitura.
+    pub hud_placement_reading: HudPlacement,
+
     // --- geral ---
     pub sounds_enabled: bool,
     /// Volume dos avisos sonoros, de 0 a 1.
@@ -341,6 +372,8 @@ impl Default for Settings {
 
             hud_position_dictation: None,
             hud_position_reading: None,
+            hud_placement_dictation: HudPlacement::Livre,
+            hud_placement_reading: HudPlacement::Livre,
 
             sounds_enabled: true,
             sounds_volume: 1.0,
@@ -565,6 +598,8 @@ pub const CAMPOS_AJUSTAVEIS_PELA_PONTE: &[&str] = &[
     "vocabulary",
     "custom_instructions",
     "shortcuts",
+    "hud_placement_dictation",
+    "hud_placement_reading",
 ];
 
 const CAMPOS_SO_LEITURA_PELA_PONTE: &[&str] = &[
@@ -931,5 +966,27 @@ mod testes_da_ponte {
     fn atalho_de_comando_inexistente_e_recusado() {
         let pedido = serde_json::json!({ "shortcuts": { "nao-existe": "Ctrl+F1" } });
         assert!(ajustar_pela_ponte(&Settings::default(), &pedido).is_err());
+    }
+
+    #[test]
+    fn ancora_de_widget_muda_pela_ponte_por_papel() {
+        let atual = Settings::default();
+        let pedido = serde_json::json!({
+            "hud_placement_dictation": "baixo-direita",
+            "hud_placement_reading": "meio-direita",
+        });
+        let ajustado = ajustar_pela_ponte(&atual, &pedido).expect("ajuste aceito");
+        assert_eq!(ajustado.hud_placement_dictation, HudPlacement::BaixoDireita);
+        assert_eq!(ajustado.hud_placement_reading, HudPlacement::MeioDireita);
+        // A posição arrastada continua guardada: voltar a "livre" devolve o
+        // lugar de antes, em vez de apagar a lembrança de quem só ancorou.
+        assert_eq!(ajustado.hud_position_dictation, atual.hud_position_dictation);
+    }
+
+    #[test]
+    fn ancora_de_widget_recusa_valor_fora_do_catalogo() {
+        let atual = Settings::default();
+        let pedido = serde_json::json!({ "hud_placement_dictation": "em-cima-do-mouse" });
+        assert!(ajustar_pela_ponte(&atual, &pedido).is_err());
     }
 }
