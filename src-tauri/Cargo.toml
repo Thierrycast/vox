@@ -60,6 +60,12 @@ directories = "5"
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
 
+# Dependências otimizadas uma vez; o código próprio compila incremental e
+# rápido. Sem isto, todo `cargo test`/`dev` recompila com opt 0 e o rodaio de
+# cpal/reqwest/tauri fica lento para abrir janela e rede.
+[profile.dev.package."*"]
+opt-level = 2
+
 [profile.release]
 # O HUD precisa aparecer instantaneamente; vale o tempo de build.
 opt-level = 3
@@ -67,3 +73,11 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Exe de uso diário: mesmo código, build bem mais curto (LTO thin, 16 unidades,
+# incremental). O `release` com LTO completo fica para publicar.
+[profile.release-rapido]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
+incremental = true
